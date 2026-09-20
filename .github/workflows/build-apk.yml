@@ -49,5 +49,20 @@ jobs:
             echo "APK unchanged"
           else
             git commit -m "chore: build APK [skip ci]"
-            git push
+            # the live-test workflow may push concurrently — rebase and retry
+            for i in 1 2 3 4 5; do
+              if git push origin HEAD:refs/heads/arena/01a0bd9b-trader; then
+                echo "APK pushed on attempt $i"
+                exit 0
+              fi
+              git fetch origin arena/01a0bd9b-trader
+              if git rebase FETCH_HEAD; then
+                sleep 3
+              else
+                git rebase --abort
+                exit 1
+              fi
+            done
+            echo "could not push the APK after 5 attempts"
+            exit 1
           fi
