@@ -65,6 +65,15 @@ public class MainActivity extends Activity {
     private LinearLayout[] tabs = new LinearLayout[4];
     private ScrollView[] pages = new ScrollView[4];
     private EditText riskEdit;
+    private EditText dailyEdit, alertPriceEdit;
+    private Switch htfSwitch;
+    private Spinner alertSymSpin, alertDirSpin;
+    private LinearLayout alertsList;
+    private static final String[] CHIP_SYMS = {"BTCIRT", "ETHIRT", "SOLIRT", "XRPIRT", "DOGEIRT", "TRXIRT"};
+    private final TextView[] chipPrice = new TextView[CHIP_SYMS.length];
+    private final TextView[] chipChg = new TextView[CHIP_SYMS.length];
+    private final LinearLayout[] chipLay = new LinearLayout[CHIP_SYMS.length];
+    private long lastChipsAt = 0;
     private LinearLayout dcaBox;
     private Spinner dcaSpin, dcaMaxSpin;
     private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn, csvBtn, tgTestBtn, optBtn;
@@ -312,6 +321,50 @@ public class MainActivity extends Activity {
         hero.addView(head);
         linDash.addView(hero);
 
+        // ---------- live market chips (tap to switch symbol) ----------
+        android.widget.HorizontalScrollView chipsScroll = new android.widget.HorizontalScrollView(this);
+        chipsScroll.setHorizontalScrollBarEnabled(false);
+        LinearLayout chips = new LinearLayout(this);
+        chips.setOrientation(LinearLayout.HORIZONTAL);
+        for (int i = 0; i < CHIP_SYMS.length; i++) {
+            final int fi = i;
+            final Market cm = Market.of(CHIP_SYMS[i]);
+            LinearLayout chip = new LinearLayout(this);
+            chip.setOrientation(LinearLayout.VERTICAL);
+            chip.setGravity(Gravity.CENTER);
+            chip.setPadding(dp(12), dp(7), dp(12), dp(7));
+            android.graphics.drawable.GradientDrawable chipBg =
+                    new android.graphics.drawable.GradientDrawable();
+            chipBg.setColor(0xFF151D30);
+            chipBg.setCornerRadius(dp(12));
+            chipBg.setStroke(dp(1), STROKE);
+            chip.setBackground(chipBg);
+            chip.addView(text(Market.coinName(cm.src), 10f, TEXT2, true));
+            TextView cp = text("…", 12f, TEXT, true);
+            chip.addView(cp);
+            TextView cc2 = text("", 10f, TEXT2, false);
+            chip.addView(cc2);
+            chip.setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    selectSymbol(cm.symbol);
+                }
+            });
+            LinearLayout.LayoutParams clp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+            clp.setMarginStart(i == 0 ? 0 : dp(6));
+            chips.addView(chip, clp);
+            chipPrice[fi] = cp;
+            chipChg[fi] = cc2;
+            chipLay[fi] = chip;
+        }
+        chipsScroll.addView(chips, new ViewGroup.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        LinearLayout.LayoutParams hsLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hsLp.topMargin = dp(8);
+        linDash.addView(chipsScroll, hsLp);
+
         // ---------- market card ----------
         LinearLayout mc = card();
         mc.addView(text("💰 بازار و قیمت لحظه‌ای", 15f, GOLD, true));
@@ -460,6 +513,30 @@ public class MainActivity extends Activity {
         tpLp.setMarginStart(dp(16));
         slRow.addView(tpCol, tpLp);
         sc.addView(slRow);
+
+        // higher-timeframe trend filter
+        LinearLayout htfHead = row();
+        LinearLayout htfCol = new LinearLayout(this);
+        htfCol.setOrientation(LinearLayout.VERTICAL);
+        htfCol.addView(text("فیلتر تایم‌فریم بالاتر", 14f, TEXT, true));
+        htfCol.addView(text("خرید فقط وقتی انجام شود که روند تایم‌فریم ۴ برابر بزرگ‌تر هم صعودی باشد", 11f, TEXT2, false));
+        htfHead.addView(htfCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        htfSwitch = new Switch(this);
+        htfHead.addView(htfSwitch);
+        sc.addView(margin(htfHead, 12));
+
+        // daily loss limit
+        LinearLayout dlRow = row();
+        LinearLayout dlCol = new LinearLayout(this);
+        dlCol.setOrientation(LinearLayout.VERTICAL);
+        dlCol.addView(text("حد ضرر روزانه (٪)", 14f, TEXT, true));
+        dlCol.addView(text("اگر ضرر قطعی امروز از این درصد سرمایه بیشتر شود، ورود جدید تا فردا متوقف می‌شود (۰ = خاموش)", 11f, TEXT2, false));
+        dlRow.addView(dlCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        dailyEdit = numberInput("5");
+        dailyEdit.setMinWidth(dp(70));
+        dailyEdit.setMaxWidth(dp(90));
+        dlRow.addView(dailyEdit);
+        sc.addView(margin(dlRow, 4));
 
         // partial take-profit
         LinearLayout tp1Head = row();
@@ -650,12 +727,71 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.5 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.6 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         fLp.topMargin = dp(14);
         foot.setLayoutParams(fLp);
+        // ---------- price alerts ----------
+        LinearLayout alc = card();
+        alc.addView(text("🔔 آلارم قیمت", 15f, GOLD, true));
+        alc.addView(text("وقتی قیمت به سطح دلخواه برسد، اعلان و پیام تلگرام دریافت می‌کنید (حتی وقتی ربات خاموش است، با هر چرخه بررسی فعال می‌شود)", 11f, TEXT2, false));
+        LinearLayout alertRow = row();
+        alertSymSpin = new Spinner(this);
+        ArrayAdapter<String> alertSymAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, Market.titles());
+        alertSymAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        alertSymSpin.setAdapter(alertSymAd);
+        alertRow.addView(alertSymSpin, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1.3f));
+        alertDirSpin = new Spinner(this);
+        ArrayAdapter<String> alertDirAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item, new String[]{"بالاتر از", "پایین‌تر از"});
+        alertDirAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        alertDirSpin.setAdapter(alertDirAd);
+        alertRow.addView(alertDirSpin, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        alc.addView(alertRow);
+        LinearLayout alertRow2 = row();
+        alertPriceEdit = numberInput("قیمت هدف — مثلاً 125000");
+        alertRow2.addView(alertPriceEdit, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        Button addAlertBtn = button("＋ افزودن", GOLD);
+        addAlertBtn.setTextColor(0xFF0D1320);
+        alertRow2.addView(addAlertBtn);
+        alc.addView(alertRow2);
+        alertsList = new LinearLayout(this);
+        alertsList.setOrientation(LinearLayout.VERTICAL);
+        alc.addView(alertsList);
+        linSettings.addView(alc);
+
+        addAlertBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                try {
+                    double pr = parse(alertPriceEdit.getText().toString(), -1);
+                    if (pr <= 0) {
+                        toast("قیمت معتبر وارد کنید");
+                        return;
+                    }
+                    int symPos = alertSymSpin.getSelectedItemPosition();
+                    String sym = symPos >= 0 && symPos < Market.SYMBOLS.length
+                            ? Market.SYMBOLS[symPos] : Market.SYMBOLS[0];
+                    boolean above = alertDirSpin.getSelectedItemPosition() == 0;
+                    org.json.JSONArray arr = new org.json.JSONArray(prefs.alertsJson());
+                    org.json.JSONObject a = new org.json.JSONObject();
+                    a.put("sym", sym);
+                    a.put("dir", above ? "above" : "below");
+                    a.put("price", pr);
+                    arr.put(a);
+                    prefs.setAlertsJson(arr.toString());
+                    alertPriceEdit.setText("");
+                    renderAlerts();
+                    toast("آلارم ثبت شد ✅");
+                } catch (Exception e) {
+                    toast("قیمت معتبر وارد کنید");
+                }
+            }
+        });
+
         linSettings.addView(foot);
 
         hookListeners();
@@ -1028,6 +1164,13 @@ public class MainActivity extends Activity {
                 return false;
             }
         }
+        double dl = parse(dailyEdit.getText().toString(), 5);
+        if (dl < 0 || dl > 50) {
+            toast("حد ضرر روزانه باید بین ۰ تا ۵۰ باشد");
+            return false;
+        }
+        prefs.setHtfFilter(htfSwitch.isChecked());
+        prefs.setDailyLossPct(dl);
         prefs.setTrailingPct(trail);
         prefs.setTp1Enabled(tp1Switch.isChecked());
         prefs.setRiskSizing(riskSwitch.isChecked());
@@ -1061,6 +1204,8 @@ public class MainActivity extends Activity {
         tgTokenEdit.setText(c.tgToken);
         tgChatEdit.setText(c.tgChat);
         tp1Switch.setChecked(c.tp1Enabled);
+        htfSwitch.setChecked(c.htfFilter);
+        if (dailyEdit != null) dailyEdit.setText(fmtNum(c.dailyLossPct));
         riskSwitch.setChecked(c.riskSizing);
         riskEdit.setText(c.riskSizing ? fmtNum(c.riskPct) : "");
         riskEdit.setVisibility(c.riskSizing ? View.VISIBLE : View.GONE);
@@ -1348,10 +1493,14 @@ public class MainActivity extends Activity {
                     final Candle[] sub = new Candle[len];
                     final double[] ema = new double[len];
                     final double[] rsiArr = new double[len];
+                    final double[] macdArr = new double[len];
+                    final double[] sigArr = new double[len];
                     for (int i = from; i < n; i++) {
                         sub[i - from] = f[i];
                         ema[i - from] = ctx.ema21[i];
                         rsiArr[i - from] = ctx.rsi14[i];
+                        macdArr[i - from] = ctx.macdLine[i];
+                        sigArr[i - from] = ctx.macdSig[i];
                     }
                     // map trade timestamps to their candle open time for markers
                     long tfSec = Market.tfSeconds(cfg.resolution);
@@ -1384,7 +1533,7 @@ public class MainActivity extends Activity {
                     postUi(new Runnable() {
                         @Override
                         public void run() {
-                            chartView.setData(sub, ema, rsiArr, entry, label, markers);
+                            chartView.setData(sub, ema, rsiArr, macdArr, sigArr, entry, label, markers);
                             analysisView.setText(analysis);
                         }
                     });
@@ -1401,6 +1550,18 @@ public class MainActivity extends Activity {
     private void refreshUi() {
         Prefs.Cfg cfg = prefs.cfg();
         Market m = Market.of(cfg.symbol);
+
+        refreshChips();
+        renderAlerts();
+        for (int i = 0; i < CHIP_SYMS.length; i++) {
+            if (chipLay[i] == null) continue;
+            try {
+                android.graphics.drawable.GradientDrawable g =
+                        (android.graphics.drawable.GradientDrawable) chipLay[i].getBackground();
+                g.setStroke(dp(1), CHIP_SYMS[i].equals(cfg.symbol) ? GOLD : STROKE);
+            } catch (Throwable ignored) {
+            }
+        }
 
         boolean run = engine.isRunning();
         statusPill.setText(run ? "● در حال اجرا" : (engine.lastError.isEmpty() ? "● متوقف" : "● خطا"));
@@ -1492,6 +1653,100 @@ public class MainActivity extends Activity {
     }
 
     // ---------------------------------------------------------------- utils
+
+    /** switch the active market from a chip tap */
+    private void selectSymbol(String sym) {
+        prefs.setSymbol(sym);
+        for (int i = 0; i < Market.SYMBOLS.length; i++) {
+            if (Market.SYMBOLS[i].equals(sym)) {
+                symbolSpin.setSelection(i);
+                break;
+            }
+        }
+        shownVersion = -1;
+        updateAmountHint();
+        refreshUi();
+    }
+
+    /** refresh live prices on the dashboard chips (throttled to ~1/min) */
+    private void refreshChips() {
+        long now = System.currentTimeMillis();
+        if (now - lastChipsAt < 45_000L) return;
+        lastChipsAt = now;
+        final Prefs.Cfg cfg = prefs.cfg();
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    NobitexApi api = new NobitexApi(cfg.token);
+                    for (int i = 0; i < CHIP_SYMS.length; i++) {
+                        final int fi = i;
+                        try {
+                            Market cm = Market.of(CHIP_SYMS[fi]);
+                            NobitexApi.DayStats st = api.stats(cm.src, cm.dst);
+                            final String priceTxt = Fmt.quote(st.latest, cm.isRls);
+                            final double ch = st.changePct();
+                            postUi(new Runnable() {
+                                @Override
+                                public void run() {
+                                    try {
+                                        chipPrice[fi].setText(priceTxt);
+                                        chipChg[fi].setText((ch >= 0 ? "▲ " : "▼ ") + Fmt.pct(ch));
+                                        chipChg[fi].setTextColor(ch >= 0 ? GREEN : RED);
+                                    } catch (Throwable ignored) {
+                                    }
+                                }
+                            });
+                        } catch (Exception ignored) {
+                        }
+                    }
+                } catch (Throwable ignored) {
+                }
+            }
+        }).start();
+    }
+
+    /** rebuild the active price-alert rows from prefs */
+    private void renderAlerts() {
+        if (alertsList == null) return;
+        alertsList.removeAllViews();
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(prefs.alertsJson());
+            for (int i = 0; i < arr.length(); i++) {
+                final int idx = i;
+                org.json.JSONObject a = arr.getJSONObject(i);
+                Market am = Market.of(a.optString("sym", Market.SYMBOLS[0]));
+                boolean above = "above".equals(a.optString("dir"));
+                LinearLayout r = row();
+                TextView t = text("🔔 " + Market.coinName(am.src) + " "
+                        + (above ? "بالاتر از " : "پایین‌تر از ")
+                        + Fmt.quote(a.optDouble("price", 0), am.isRls), 12f, TEXT, false);
+                r.addView(t, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+                Button del = button("✕", RED);
+                del.setOnClickListener(new View.OnClickListener() {
+                    @Override
+                    public void onClick(View v) {
+                        try {
+                            org.json.JSONArray arr2 = new org.json.JSONArray(prefs.alertsJson());
+                            org.json.JSONArray keep = new org.json.JSONArray();
+                            for (int j = 0; j < arr2.length(); j++) {
+                                if (j != idx) keep.put(arr2.get(j));
+                            }
+                            prefs.setAlertsJson(keep.toString());
+                            renderAlerts();
+                        } catch (Exception ignored) {
+                        }
+                    }
+                });
+                r.addView(del);
+                alertsList.addView(r);
+            }
+            if (arr.length() == 0) {
+                alertsList.addView(text("آلارمی ثبت نشده — ارز، شرط و قیمت را انتخاب کنید", 11f, TEXT2, false));
+            }
+        } catch (Exception ignored) {
+        }
+    }
 
     private void postUi(Runnable r) {
         runOnUiThread(r);

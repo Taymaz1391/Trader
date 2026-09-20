@@ -325,6 +325,18 @@ public class SelfTest {
         check(Math.abs(mk.get(0)[0] - 1_700_000_123.0) < 1e-6 && mk.get(0)[2] == 1, "buy marker time+side");
         check(Math.abs(mk.get(1)[1] - 6.0) < 1e-9 && mk.get(1)[2] == -1, "sell marker price+side");
 
+        System.out.println("== macd indicator ==");
+        double[] macdUp = new double[80];
+        for (int i = 0; i < 80; i++) macdUp[i] = 100 + i * i * 0.02;
+        double[][] mu = Indicators.macd(macdUp, 12, 26, 9);
+        check(mu[0][79] > 0 && mu[0][79] > mu[1][79],
+                "accelerating uptrend: macd>0 and above signal (macd=" + mu[0][79] + ")");
+        double[] macdDn = new double[80];
+        for (int i = 0; i < 80; i++) macdDn[i] = 100 - i * i * 0.02;
+        double[][] md = Indicators.macd(macdDn, 12, 26, 9);
+        check(md[0][79] < 0 && md[0][79] < md[1][79],
+                "accelerating downtrend: macd<0 and below signal (macd=" + md[0][79] + ")");
+
         System.out.println("== fmt ==");
         check("100,000".equals(Fmt.toman(1_000_001)), "toman rounding + grouping: " + Fmt.toman(1_000_001));
         check("0.5".equals(Fmt.amount(0.5)), "amount 0.5");

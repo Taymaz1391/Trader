@@ -24,6 +24,8 @@ public class ChartView extends View {
     private Candle[] data = new Candle[0];
     private double[] ema = new double[0];
     private double[] rsi = new double[0];
+    private double[] macd = new double[0];
+    private double[] macdSig = new double[0];
     private double[][] markers = new double[0][]; // {candleTimeSec, price, side(+1/-1)}
     private double entry;    // 0 = no entry line
     private double last;
@@ -54,6 +56,10 @@ public class ChartView extends View {
     private final Paint rsiBandP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rsiZoneP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint markP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint macdP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint macdSigP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint histUpP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint histDnP = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final ScaleGestureDetector scale;
     private final GestureDetector gest;
@@ -105,6 +111,16 @@ public class ChartView extends View {
         rsiZoneP.setColor(0x149B6BFF);
         markP.setStyle(Paint.Style.FILL);
         markP.setAntiAlias(true);
+        macdP.setStyle(Paint.Style.STROKE);
+        macdP.setStrokeWidth(1.5f * d);
+        macdP.setColor(0xFFF5B84D);
+        macdSigP.setStyle(Paint.Style.STROKE);
+        macdSigP.setStrokeWidth(1.1f * d);
+        macdSigP.setColor(0xFF9B6BFF);
+        histUpP.setStyle(Paint.Style.FILL);
+        histUpP.setColor(0x8816C784);
+        histDnP.setStyle(Paint.Style.FILL);
+        histDnP.setColor(0x88E5484D);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
         scale = new ScaleGestureDetector(c, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -150,12 +166,15 @@ public class ChartView extends View {
         return getResources().getDisplayMetrics().density;
     }
 
-    /** full data refresh; ema/rsi must align with data; markers = {timeSec, price, side} */
+    /** full data refresh; ema/rsi/macd/sig must align with data; markers = {timeSec, price, side} */
     public void setData(Candle[] candles, double[] emaArr, double[] rsiArr,
+                        double[] macdArr, double[] sigArr,
                         double entryPrice, String label, double[][] tradeMarkers) {
         data = candles == null ? new Candle[0] : candles;
         ema = emaArr == null ? new double[0] : emaArr;
         rsi = rsiArr == null ? new double[0] : rsiArr;
+        macd = macdArr == null ? new double[0] : macdArr;
+        macdSig = sigArr == null ? new double[0] : sigArr;
         markers = tradeMarkers == null ? new double[0][] : tradeMarkers;
         entry = entryPrice;
         last = data.length > 0 ? data[data.length - 1].c : 0;
@@ -180,7 +199,7 @@ public class ChartView extends View {
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
-                Math.round(305 * d()));
+                Math.round(360 * d()));
     }
 
     @Override
@@ -205,9 +224,10 @@ public class ChartView extends View {
         float padB = 6 * d();
 
         float totalH = getHeight() - padT - padB;
-        float volH = totalH * 0.16f;
-        float rsiH = totalH * 0.24f;
-        float priceH = totalH - volH - rsiH - 12 * d();
+        float volH = totalH * 0.13f;
+        float rsiH = totalH * 0.17f;
+        float macdH = totalH * 0.20f;
+        float priceH = totalH - volH - rsiH - macdH - 18 * d();
         float w = getWidth() - padL - padR;
 
         double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
@@ -281,8 +301,54 @@ public class ChartView extends View {
             if (rs) c.drawPath(rp, rsiP);
         }
 
+        // ---- MACD panel ----
+        float mmT = rsiB + 6 * d();
+        float mmB = mmT + macdH;
+        float mAbs = 0.0000001f;
+        if (macd.length == data.length) {
+            for (int i = start; i < end; i++) {
+                double a = macd[i], b2 = macdSig[i];
+                if (!Double.isNaN(a)) mAbs = Math.max(mAbs, (float) Math.abs(a));
+                if (!Double.isNaN(b2)) mAbs = Math.max(mAbs, (float) Math.abs(b2));
+            }
+        }
+        float zero = (mmT + mmB) / 2f;
+        c.drawLine(padL, zero, padL + w, zero, gridP);
+        txtP.setTextAlign(android.graphics.Paint.Align.RIGHT);
+        c.drawText("MACD", padL - 5 * d(), mmT + 8 * d(), txtP);
+        txtP.setTextAlign(Paint.Align.LEFT);
+        if (macd.length == data.length) {
+            // histogram bars
+            for (int i = start; i < end; i++) {
+                double h = macd[i] - macdSig[i];
+                if (Double.isNaN(h)) continue;
+                float bh = (float) (h / mAbs) * (macdH / 2f);
+                float lft = padL + step * (i - start) + step * 0.35f;
+                float rgt = lft + step * 0.3f;
+                c.drawRect(lft, Math.min(zero, zero - bh), rgt, Math.max(zero, zero - bh),
+                        h >= 0 ? histUpP : histDnP);
+            }
+            // macd + signal lines
+            Path mp = new Path();
+            Path sp2 = new Path();
+            boolean mOn = false, sOn = false;
+            for (int i = start; i < end; i++) {
+                float x = padL + step * (i - start + 0.5f);
+                if (!Double.isNaN(macd[i])) {
+                    float y = zero - (float) (macd[i] / mAbs) * (macdH / 2f);
+                    if (!mOn) { mp.moveTo(x, y); mOn = true; } else mp.lineTo(x, y);
+                }
+                if (!Double.isNaN(macdSig[i])) {
+                    float y = zero - (float) (macdSig[i] / mAbs) * (macdH / 2f);
+                    if (!sOn) { sp2.moveTo(x, y); sOn = true; } else sp2.lineTo(x, y);
+                }
+            }
+            if (mOn) c.drawPath(mp, macdP);
+            if (sOn) c.drawPath(sp2, macdSigP);
+        }
+
         // ---- volume baseline ----
-        float volBase = rsiB + 6 * d() + volH;
+        float volBase = mmB + 6 * d() + volH;
         c.drawLine(padL, volBase, padL + w, volBase, gridP);
 
         for (int i = start; i < end; i++) {

@@ -33,6 +33,8 @@ public class Prefs {
         public boolean tp1Enabled = false;  // partial take-profit at half the TP
         public boolean riskSizing = false;  // dynamic position size by risk
         public double riskPct = 1.0;        // % of equity risked per trade
+        public boolean htfFilter = true;    // require higher-timeframe uptrend for buys
+        public double dailyLossPct = 5.0;   // stop new entries after -X% daily realized loss (0=off)
         public boolean dca = false;         // dollar-cost averaging mode
         public int dcaIntervalCandles = 24; // one ladder every N closed candles
         public int dcaMaxLadders = 5;       // max ladders per position, 0 = unlimited
@@ -56,6 +58,8 @@ public class Prefs {
         c.tp1Enabled = sp.getBoolean("tp1Enabled", false);
         c.riskSizing = sp.getBoolean("riskSizing", false);
         c.riskPct = (double) sp.getFloat("riskPct", 1f);
+        c.htfFilter = sp.getBoolean("htfFilter", true);
+        c.dailyLossPct = (double) sp.getFloat("dailyLossPct", 5f);
         c.dca = sp.getBoolean("dca", false);
         c.dcaIntervalCandles = sp.getInt("dcaIntervalCandles", 24);
         c.dcaMaxLadders = sp.getInt("dcaMaxLadders", 5);
@@ -80,6 +84,8 @@ public class Prefs {
                 .putBoolean("tp1Enabled", c.tp1Enabled)
                 .putBoolean("riskSizing", c.riskSizing)
                 .putFloat("riskPct", (float) c.riskPct)
+                .putBoolean("htfFilter", c.htfFilter)
+                .putFloat("dailyLossPct", (float) c.dailyLossPct)
                 .putBoolean("dca", c.dca)
                 .putInt("dcaIntervalCandles", c.dcaIntervalCandles)
                 .putInt("dcaMaxLadders", c.dcaMaxLadders)
@@ -103,6 +109,8 @@ public class Prefs {
     public void setTp1Enabled(boolean v) { sp.edit().putBoolean("tp1Enabled", v).apply(); }
     public void setRiskSizing(boolean v) { sp.edit().putBoolean("riskSizing", v).apply(); }
     public void setRiskPct(double v) { sp.edit().putFloat("riskPct", (float) v).apply(); }
+    public void setHtfFilter(boolean v) { sp.edit().putBoolean("htfFilter", v).apply(); }
+    public void setDailyLossPct(double v) { sp.edit().putFloat("dailyLossPct", (float) v).apply(); }
     public void setDca(boolean v) { sp.edit().putBoolean("dca", v).apply(); }
     public void setDcaInterval(int v) { sp.edit().putInt("dcaIntervalCandles", v).apply(); }
     public void setDcaMax(int v) { sp.edit().putInt("dcaMaxLadders", v).apply(); }
@@ -144,6 +152,18 @@ public class Prefs {
     /** consecutive losing trades (entry cooldown grows after a losing streak) */
     public int consecLosses() { return sp.getInt("consecLosses", 0); }
     public void setConsecLosses(int v) { sp.edit().putInt("consecLosses", v).apply(); }
+
+    /** price alerts as a JSON array: [{"sym":"BTCIRT","dir":"above","price":123}] */
+    public String alertsJson() { return sp.getString("alerts", "[]"); }
+    public void setAlertsJson(String v) { sp.edit().putString("alerts", v).apply(); }
+
+    /** daily loss-limit bookkeeping (resets on the first cycle of each day) */
+    public String dayKey() { return sp.getString("dayKey", ""); }
+    public void setDayKey(String v) { sp.edit().putString("dayKey", v).apply(); }
+    public double dayStartRealized() { return (double) sp.getFloat("dayStartRealized", 0f); }
+    public void setDayStartRealized(double v) { sp.edit().putFloat("dayStartRealized", (float) v).apply(); }
+    public boolean dayLossNotified() { return sp.getBoolean("dayLossNotified", false); }
+    public void setDayLossNotified(boolean v) { sp.edit().putBoolean("dayLossNotified", v).apply(); }
 
     /** DCA ladder bookkeeping for the open position */
     public int posLadders() { return sp.getInt("posLadders", 0); }

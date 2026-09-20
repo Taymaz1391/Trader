@@ -28,6 +28,9 @@ public class BotEngine {
     // live status for the UI
     public volatile double lastPrice = 0;
     public volatile double dayChangePct = 0;
+    private boolean htfBull = true;   // cached higher-timeframe trend (15 min)
+    private long htfAt = 0;
+    private long lastDailyWarn = 0;
     public volatile long lastCheck = 0;
     public volatile String lastError = "";
     public volatile String strategyName = "";
@@ -165,6 +168,8 @@ public class BotEngine {
         }
         lastCheck = System.currentTimeMillis();
 
+        checkAlerts(cfg, api, price);
+
         Strategy.Ctx c = Strategy.Ctx.compute(cs);
         int i = cs.length - 2; // last CLOSED candle
         if (i < Strategy.WARMUP) return;
@@ -185,6 +190,20 @@ public class BotEngine {
             if (consec >= 2) cooldown *= 2; // cool down longer after a losing streak
             long since = System.currentTimeMillis() - prefs.lastTradeTime();
             if (since < cooldown) return; // just closed a trade, wait
+
+            // daily loss limit: no new entries until tomorrow
+            if (cfg.dailyLossPct > 0 && dailyLossHit(cfg, m, api)) {
+                long nw = System.currentTimeMillis();
+                if (nw - lastDailyWarn > 3_600_000L) {
+                    lastDailyWarn = nw;
+                    Store.log("🛑 حد ضرر روزانه پر شده؛ ورود جدید تا فردا متوقف است");
+                }
+                return;
+            }
+
+            // higher-timeframe trend must agree before buying
+            if (cfg.htfFilter && !htfBullish(cfg, m, api)) return;
+
             if (cfg.dca) {
                 if (spreadOk) {
                     buy(cfg, m, api, buyPrice, effSlPct(cfg, c, i, buyPrice),
@@ -198,6 +217,118 @@ public class BotEngine {
                 }
             }
         }
+    }
+
+    /** one-shot price alerts: fire a notification + telegram message when crossed */
+    private void checkAlerts(Prefs.Cfg cfg, NobitexApi api, double ownPrice) {
+        try {
+            org.json.JSONArray arr = new org.json.JSONArray(prefs.alertsJson());
+            if (arr.length() == 0) return;
+            org.json.JSONArray keep = new org.json.JSONArray();
+            boolean changed = false;
+            for (int i = 0; i < arr.length(); i++) {
+                org.json.JSONObject a = arr.getJSONObject(i);
+                String sym = a.optString("sym", "");
+                double target = a.optDouble("price", 0);
+                boolean above = "above".equals(a.optString("dir"));
+                if (sym.isEmpty() || target <= 0) continue;
+                double p;
+                if (sym.equals(cfg.symbol)) {
+                    p = ownPrice;
+                } else {
+                    try { p = api.lastPrice(sym); } catch (Exception e) { p = -1; }
+                }
+                if (p <= 0) { keep.put(a); continue; }
+                boolean hit = above ? p >= target : p <= target;
+                if (hit) {
+                    changed = true;
+                    Market am = Market.of(sym);
+                    String msg = "🔔 " + Market.coinName(am.src)
+                            + (above ? " به بالای " : " به زیر ")
+                            + Fmt.quote(target, am.isRls) + " رسید — قیمت فعلی: "
+                            + Fmt.quote(p, am.isRls);
+                    Store.log(msg);
+                    BotService.notifyTrade(ctx, "آلارم قیمت", msg);
+                    sendTg(cfg, msg);
+                } else {
+                    keep.put(a);
+                }
+            }
+            if (changed) prefs.setAlertsJson(keep.toString());
+        } catch (Exception ignored) {
+        }
+    }
+
+    /** yyyyMMdd key of today */
+    private String todayKey() {
+        java.util.Calendar cal = java.util.Calendar.getInstance();
+        return String.format(java.util.Locale.US, "%04d%02d%02d",
+                cal.get(java.util.Calendar.YEAR), cal.get(java.util.Calendar.MONTH) + 1,
+                cal.get(java.util.Calendar.DAY_OF_MONTH));
+    }
+
+    /** true when today's realized loss has reached the daily limit */
+    private boolean dailyLossHit(Prefs.Cfg cfg, Market m, NobitexApi api) {
+        try {
+            String today = todayKey();
+            if (!today.equals(prefs.dayKey())) {
+                prefs.setDayKey(today);
+                prefs.setDayStartRealized(prefs.realizedPnl());
+                prefs.setDayLossNotified(false);
+            }
+            double loss = prefs.realizedPnl() - prefs.dayStartRealized();
+            if (loss >= 0) return false;
+            double equity;
+            if (cfg.live) {
+                try {
+                    equity = api.walletBalance(m.dst);
+                } catch (Exception e) {
+                    equity = cfg.tradeAmount + prefs.realizedPnl();
+                }
+            } else {
+                equity = cfg.tradeAmount + prefs.realizedPnl();
+            }
+            if (equity <= 0) return false;
+            if (-loss >= cfg.dailyLossPct / 100.0 * equity) {
+                if (!prefs.dayLossNotified()) {
+                    prefs.setDayLossNotified(true);
+                    String msg = "🛑 حد ضرر روزانه پر شد: " + Fmt.quote(-loss, m.isRls)
+                            + " " + m.quoteUnit() + " ضرر امروز — ورود جدید تا فردا متوقف شد";
+                    Store.log(msg);
+                    BotService.notifyTrade(ctx, "حد ضرر روزانه", msg);
+                    sendTg(cfg, msg);
+                }
+                return true;
+            }
+            return false;
+        } catch (Exception e) {
+            return false;
+        }
+    }
+
+    /** higher-timeframe trend confirmation (cached 15 min, fails open) */
+    private boolean htfBullish(Prefs.Cfg cfg, Market m, NobitexApi api) {
+        long now = System.currentTimeMillis();
+        if (now - htfAt < 900_000L) return htfBull;
+        try {
+            String htf = "240";
+            if ("15".equals(cfg.resolution)) htf = "60";
+            else if ("240".equals(cfg.resolution)) htf = "D";
+            Candle[] hc = api.udfHistory(m.symbol, htf, 60);
+            if (hc.length < 25) {
+                htfBull = true;
+            } else {
+                double[] cl = new double[hc.length];
+                for (int i = 0; i < hc.length; i++) cl[i] = hc[i].c;
+                double[] e21 = Indicators.ema(cl, 21);
+                int li = hc.length - 2; // last closed higher-TF candle
+                htfBull = !Double.isNaN(e21[li]) && cl[li] > e21[li];
+            }
+        } catch (Exception e) {
+            htfBull = true; // fail open: never block trading on a data glitch
+        }
+        htfAt = now;
+        return htfBull;
     }
 
     /** effective stop-loss percent at the moment of a new entry */
