@@ -57,17 +57,19 @@ public class MainActivity extends Activity {
     // views
     private TextView statusPill, priceView, changeView, symbolTitle;
     private TextView walletView, posView, statsView, logView, backtestView;
-    private TextView stratDesc, amountHint, liveWarn;
-    private EditText tokenEdit, amountEdit, slEdit, tpEdit;
+    private TextView stratDesc, amountHint, liveWarn, analysisView;
+    private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit;
     private Spinner symbolSpin, tfSpin, intervalSpin, stratSpin;
-    private Switch liveSwitch;
+    private Switch liveSwitch, trailSwitch;
     private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn;
     private LinearLayout sellResetRow;
+    private ChartView chartView;
 
     private boolean resumed = false;
     private int shownVersion = -1;
     private int tick = 0;
     private volatile boolean priceBusy = false;
+    private volatile boolean chartBusy = false;
     private volatile boolean btBusy = false;
 
     // ------------------------------------------------------------------
@@ -97,6 +99,7 @@ public class MainActivity extends Activity {
         super.onResume();
         resumed = true;
         refreshUi();
+        fetchChart();
         ui.postDelayed(poll, 2500);
     }
 
@@ -114,6 +117,7 @@ public class MainActivity extends Activity {
             refreshUi();
             tick++;
             if (tick % 4 == 0) fetchPrice();
+            if (tick % 18 == 1) fetchChart();
             ui.postDelayed(this, 2500);
         }
     };
@@ -260,6 +264,19 @@ public class MainActivity extends Activity {
         mc.addView(prow);
         root.addView(mc);
 
+        // ---------- chart card ----------
+        LinearLayout chc = card();
+        chc.addView(text("نمودار قیمت و تحلیل لحظه‌ای", 15f, GOLD, true));
+        chartView = new ChartView(this);
+        LinearLayout.LayoutParams cvLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cvLp.topMargin = dp(8);
+        chartView.setLayoutParams(cvLp);
+        chc.addView(chartView);
+        analysisView = text("خط طلایی: EMA21 — خط‌چین: قیمت ورود شما", 12f, TEXT2, false);
+        chc.addView(margin(analysisView, 6));
+        root.addView(chc);
+
         // ---------- control card ----------
         LinearLayout cc = card();
         startBtn = button("▶  شروع ربات", GREEN);
@@ -361,6 +378,17 @@ public class MainActivity extends Activity {
         slRow.addView(tpCol, tpLp);
         sc.addView(slRow);
 
+        // trailing stop
+        LinearLayout trHead = row();
+        trHead.addView(text("حد ضرر متحرک", 15f, TEXT, true),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        trailSwitch = new Switch(this);
+        trHead.addView(trailSwitch);
+        sc.addView(margin(trHead, 12));
+        trailEdit = numberInput("مثلاً 3 (درصد)");
+        trailEdit.setVisibility(View.GONE);
+        sc.addView(trailEdit);
+
         sc.addView(margin(vline(), 12));
         LinearLayout liveRow = row();
         liveRow.setGravity(Gravity.CENTER_VERTICAL);
@@ -427,7 +455,7 @@ public class MainActivity extends Activity {
         root.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.0 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.1 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -567,6 +595,16 @@ public class MainActivity extends Activity {
                 }
             }
         });
+
+        trailSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                trailEdit.setVisibility(isChecked ? View.VISIBLE : View.GONE);
+                if (isChecked && trailEdit.getText().toString().trim().isEmpty()) {
+                    trailEdit.setText("3");
+                }
+            }
+        });
     }
 
     private void confirmLive() {
@@ -644,6 +682,14 @@ public class MainActivity extends Activity {
             toast("حد ضرر و حد سود معتبر وارد کنید");
             return false;
         }
+        double trail = 0;
+        if (trailSwitch.isChecked()) {
+            trail = parse(trailEdit.getText().toString(), -1);
+            if (trail < 0.3 || trail > 50) {
+                toast("درصد حد ضرر متحرک باید بین ۰.۳ تا ۵۰ باشد");
+                return false;
+            }
+        }
         Market m = Market.of(Market.SYMBOLS[symbolSpin.getSelectedItemPosition()]);
         boolean live = liveSwitch.isChecked();
         double min = m.isRls ? NobitexApi.MIN_RLS / 10.0 : NobitexApi.MIN_USDT;
@@ -657,6 +703,7 @@ public class MainActivity extends Activity {
         prefs.setTradeAmount(amount);
         prefs.setSlPct(sl);
         prefs.setTpPct(tp);
+        prefs.setTrailingPct(trail);
         prefs.setLive(live);
         return true;
     }
@@ -676,6 +723,9 @@ public class MainActivity extends Activity {
             if (Market.SYMBOLS[i].equals(c.symbol)) symPos = i;
         }
         symbolSpin.setSelection(symPos, false);
+        trailSwitch.setChecked(c.trailingPct > 0);
+        trailEdit.setText(c.trailingPct > 0 ? fmtNum(c.trailingPct) : "");
+        trailEdit.setVisibility(c.trailingPct > 0 ? View.VISIBLE : View.GONE);
         String[] tfs = {"15", "60", "240", "D"};
         for (int i = 0; i < tfs.length; i++) {
             if (tfs[i].equals(c.resolution)) tfSpin.setSelection(i, false);
@@ -752,11 +802,15 @@ public class MainActivity extends Activity {
                     StringBuilder sb = new StringBuilder();
                     sb.append("📊 نتیجه بک‌تست روی ").append(cs.length).append(" کندل ").append(tfName(cfg.resolution)).append(" (")
                             .append(m.title).append(")\n");
-                    sb.append("حد ضرر ").append(Fmt.pct(-cfg.slPct)).append(" | حد سود ").append(Fmt.pct(cfg.tpPct))
-                            .append(" | کارمزد تقریبی ۰.۲۵٪\n\n");
+                    sb.append("حد ضرر ").append(Fmt.pct(-cfg.slPct)).append(" | حد سود ").append(Fmt.pct(cfg.tpPct));
+                    if (cfg.trailingPct > 0) {
+                        sb.append(" | حد ضرر متحرک ").append(fmtNum(cfg.trailingPct)).append("٪");
+                    }
+                    sb.append(" | کارمزد تقریبی ۰.۲۵٪\n\n");
                     Backtester.Result best = null;
                     for (int s = 0; s < Strategy.ALL.length; s++) {
-                        Backtester.Result r = Backtester.run(Strategy.ALL[s], cs, cfg.slPct, cfg.tpPct);
+                        Backtester.Result r = Backtester.run(Strategy.ALL[s], cs, cfg.slPct, cfg.tpPct,
+                                cfg.trailingPct, Backtester.DEFAULT_FEE);
                         if (!r.ok) continue;
                         if (best == null || r.netPct > best.netPct) best = r;
                         sb.append("• ").append(Strategy.ALL[s].name()).append('\n');
@@ -811,6 +865,59 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** fetch candle history (or reuse the engine cache) and redraw the chart + analysis */
+    private void fetchChart() {
+        if (chartBusy) return;
+        chartBusy = true;
+        startThread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    final Prefs.Cfg cfg = prefs.cfg();
+                    final Market m = Market.of(cfg.symbol);
+                    Candle[] cs = null;
+                    if (engine.candlesAt > 0
+                            && System.currentTimeMillis() - engine.candlesAt < 90_000L
+                            && engine.lastCandles.length > 60) {
+                        cs = engine.lastCandles;
+                    }
+                    if (cs == null) {
+                        cs = new NobitexApi(null).udfHistory(m.symbol, cfg.resolution, 300);
+                    }
+                    if (cs.length < 30) return;
+                    final Candle[] f = cs;
+                    int n = f.length;
+                    Strategy.Ctx ctx = Strategy.Ctx.compute(f);
+                    int from = Math.max(0, n - 120);
+                    final double[] closes = new double[n - from];
+                    final double[] ema = new double[n - from];
+                    for (int i = from; i < n; i++) {
+                        closes[i - from] = f[i].c;
+                        ema[i - from] = ctx.ema21[i];
+                    }
+                    final double lastP = f[n - 1].c;
+                    boolean upTrend = ctx.ema9[n - 1] > ctx.ema21[n - 1];
+                    int score = new Strategy.ComboScore().score(n - 1, ctx);
+                    final String analysis = "RSI: " + String.format(Locale.US, "%.1f", ctx.rsi14[n - 1])
+                            + "   |   روند: " + (upTrend ? "صعودی 📈" : "نزولی 📉")
+                            + "   |   امتیاز ترکیبی: " + score + "/۷";
+                    final double entry = prefs.posActive() ? prefs.posEntry() : 0;
+                    final String label = Fmt.quote(lastP, m.isRls);
+                    postUi(new Runnable() {
+                        @Override
+                        public void run() {
+                            chartView.setData(closes, ema, lastP, entry, label);
+                            analysisView.setText(analysis);
+                        }
+                    });
+                } catch (Exception ignored) {
+                } finally {
+                    chartBusy = false;
+                }
+            }
+        });
+    }
+
     // ---------------------------------------------------------------- refresh
 
     private void refreshUi() {
@@ -845,6 +952,10 @@ public class MainActivity extends Activity {
             sb.append("📌 در پوزیشن ").append(prefs.posLive() ? "واقعی ⚡" : "شبیه‌سازی").append('\n');
             sb.append("مقدار: ").append(Fmt.amount(amount)).append(' ').append(Market.coinName(m.src)).append('\n');
             sb.append("قیمت ورود: ").append(Fmt.quote(entry, m.isRls)).append('\n');
+            if (cfg.trailingPct > 0) {
+                double peak = prefs.posPeak();
+                if (peak > 0) sb.append("اوج پس از ورود: ").append(Fmt.quote(peak, m.isRls)).append('\n');
+            }
             if (p > 0) {
                 sb.append("قیمت فعلی: ").append(Fmt.quote(p, m.isRls)).append("  (").append(Fmt.pct(pnlPct)).append(")");
             }
@@ -855,6 +966,7 @@ public class MainActivity extends Activity {
             posView.setTextColor(TEXT);
         }
         sellResetRow.setVisibility(inPos ? View.VISIBLE : View.GONE);
+        chartView.updateEntry(inPos ? prefs.posEntry() : 0);
 
         statsView.setText("سود تحقق‌یافته: " + Fmt.quote(prefs.realizedPnl(), m.isRls) + " " + m.quoteUnit()
                 + "   |   معاملات: " + prefs.tradeCount()

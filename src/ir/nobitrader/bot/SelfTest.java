@@ -95,6 +95,41 @@ public class SelfTest {
             check(!Double.isNaN(res.netPct) && !Double.isNaN(res.maxDDPct), st.name() + ": finite results");
         }
 
+        System.out.println("== trailing stop ==");
+        check(Math.abs(Backtester.trailPriceFor(100, 3) - 97.0) < 1e-9, "trail price = peak*(1-3%)");
+        check(Double.isNaN(Backtester.trailPriceFor(100, 0)), "trail disabled => NaN");
+
+        // deterministic scenario: enter at a fixed bar, price rises then falls;
+        // fixed SL/TP are set so they can never fire -> only the trailing stop can exit.
+        Strategy fixedBuy = new Strategy() {
+            public String name() { return "test-fixed-buy"; }
+            public String desc() { return "test"; }
+            public int signal(Candle[] cs, int i, Ctx ctx) { return i == 115 ? BUY : HOLD; }
+        };
+        Candle[] tr = new Candle[200];
+        for (int i = 0; i < tr.length; i++) {
+            double c;
+            if (i < 100) c = 100;
+            else if (i < 106) c = 100 - (i - 99) * 0.5;   // small dip -> EMA9 below EMA21
+            else if (i < 156) c = 97 + (i - 105) * 1.5;    // steady rise
+            else c = 172 - (i - 155) * 1.5;                // steady fall
+            tr[i] = new Candle(1_700_000_000L + i * 3600L, c, c + 0.4, c - 0.4, c, 10);
+        }
+        Backtester.Result hold = Backtester.run(fixedBuy, tr, 50, 1000, 0, 0.0);
+        Backtester.Result trail = Backtester.run(fixedBuy, tr, 50, 1000, 3.0, 0.0);
+        check(hold.trades == 0, "without trailing the position is never closed (trades=" + hold.trades + ")");
+        check(trail.trades == 1, "trailing stop closes the position exactly once (trades=" + trail.trades + ")");
+        check(trail.netPct > 0 && trail.netPct < 60,
+                "trailing exit locks in profit near the peak (net=" + String.format("%.2f", trail.netPct) + "%)");
+
+        boolean trailOk = true;
+        for (int s = 0; s < Strategy.ALL.length; s++) {
+            Backtester.Result a = Backtester.run(Strategy.ALL[s], cs, 4, 8, 0, Backtester.DEFAULT_FEE);
+            Backtester.Result b = Backtester.run(Strategy.ALL[s], cs, 4, 8, 2.0, Backtester.DEFAULT_FEE);
+            if (!a.ok || !b.ok || b.trades < a.trades) trailOk = false;
+        }
+        check(trailOk, "trailing never reduces trade count across all strategies");
+
         System.out.println("== fmt ==");
         check("100,000".equals(Fmt.toman(1_000_001)), "toman rounding + grouping: " + Fmt.toman(1_000_001));
         check("0.5".equals(Fmt.amount(0.5)), "amount 0.5");

@@ -15,7 +15,11 @@ import android.os.PowerManager;
 public class BotService extends Service {
 
     public static final String CHANNEL_ID = "nobitrader_bot";
+    public static final String TRADES_CHANNEL_ID = "nobitrader_trades";
     public static final int NOTIF_ID = 1;
+
+    private static final java.util.concurrent.atomic.AtomicInteger TRADE_NOTIF_IDS =
+            new java.util.concurrent.atomic.AtomicInteger(100);
 
     private PowerManager.WakeLock wl;
 
@@ -40,6 +44,39 @@ public class BotService extends Service {
         if (nm == null) return;
         try {
             nm.notify(NOTIF_ID, build(ctx));
+        } catch (Throwable ignored) {
+        }
+    }
+
+    /** show a (user-visible, tappable) notification for a real trade */
+    public static void notifyTrade(Context ctx, String title, String text) {
+        try {
+            NotificationManager nm = (NotificationManager) ctx.getSystemService(Context.NOTIFICATION_SERVICE);
+            if (nm == null) return;
+            if (Build.VERSION.SDK_INT >= 26) {
+                NotificationChannel ch = new NotificationChannel(TRADES_CHANNEL_ID,
+                        "معاملات ربات", NotificationManager.IMPORTANCE_DEFAULT);
+                ch.setDescription("اعلان خرید و فروش‌های واقعی ربات");
+                nm.createNotificationChannel(ch);
+            }
+            Intent open = new Intent(ctx, MainActivity.class);
+            open.setFlags(Intent.FLAG_ACTIVITY_SINGLE_TOP);
+            int flags = PendingIntent.FLAG_UPDATE_CURRENT;
+            if (Build.VERSION.SDK_INT >= 23) flags |= PendingIntent.FLAG_IMMUTABLE;
+            PendingIntent pi = PendingIntent.getActivity(ctx, 1, open, flags);
+            Notification.Builder b;
+            if (Build.VERSION.SDK_INT >= 26) {
+                b = new Notification.Builder(ctx, TRADES_CHANNEL_ID);
+            } else {
+                b = new Notification.Builder(ctx);
+            }
+            b.setSmallIcon(R.drawable.ic_stat)
+                    .setContentTitle(title)
+                    .setContentText(text)
+                    .setStyle(new Notification.BigTextStyle().bigText(text))
+                    .setContentIntent(pi)
+                    .setAutoCancel(true);
+            nm.notify(TRADE_NOTIF_IDS.getAndIncrement(), b.build());
         } catch (Throwable ignored) {
         }
     }

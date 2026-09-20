@@ -31,6 +31,8 @@ public class BotEngine {
     public volatile long lastCheck = 0;
     public volatile String lastError = "";
     public volatile String strategyName = "";
+    public volatile Candle[] lastCandles = new Candle[0];
+    public volatile long candlesAt = 0;
 
     private BotEngine(Context ctx) {
         this.ctx = ctx;
@@ -99,6 +101,8 @@ public class BotEngine {
             Store.log("⚠️ داده کافی برای تحلیل موجود نیست (" + cs.length + " کندل)");
             return;
         }
+        lastCandles = cs;
+        candlesAt = System.currentTimeMillis();
 
         double price;
         try {
@@ -136,14 +140,33 @@ public class BotEngine {
         double entry = prefs.posEntry();
         double amount = prefs.posAmount();
         double pnlPct = entry > 0 ? (price / entry - 1.0) * 100.0 : 0;
-        boolean stop = pnlPct <= -cfg.slPct;
+
+        // trailing stop: track the peak price since entry
+        double peak = prefs.posPeak();
+        if (cfg.trailingPct > 0) {
+            if (price > peak) {
+                peak = price;
+                prefs.setPosPeak(peak);
+            }
+        }
+        boolean trailStop = cfg.trailingPct > 0 && peak > 0
+                && price <= peak * (1.0 - cfg.trailingPct / 100.0);
+
+        boolean stop = pnlPct <= -cfg.slPct || trailStop;
         boolean take = pnlPct >= cfg.tpPct;
         int sig = strat.signal(cs, i, c);
 
         if (stop || take || sig == Strategy.SELL) {
-            String reason = stop ? "فعال شدن حد ضرر (" + Fmt.pct(pnlPct) + ")"
-                    : take ? "رسیدن به حد سود (" + Fmt.pct(pnlPct) + ")"
-                    : "سیگنال فروش: " + strat.reason;
+            String reason;
+            if (trailStop && pnlPct > -cfg.slPct) {
+                reason = "حد ضرر متحرک (افت " + Fmt.pct((price / peak - 1.0) * 100.0) + " از اوج)";
+            } else if (stop) {
+                reason = "فعال شدن حد ضرر (" + Fmt.pct(pnlPct) + ")";
+            } else if (take) {
+                reason = "رسیدن به حد سود (" + Fmt.pct(pnlPct) + ")";
+            } else {
+                reason = "سیگنال فروش: " + strat.reason;
+            }
             sell(cfg, m, api, price, reason);
         }
     }
@@ -181,6 +204,7 @@ public class BotEngine {
         }
 
         prefs.setPos(true, amount, price, System.currentTimeMillis(), cfg.live);
+        prefs.setPosPeak(price);
         JSONObject t = new JSONObject();
         t.put("time", System.currentTimeMillis());
         t.put("side", "buy");
@@ -190,6 +214,11 @@ public class BotEngine {
         Store.trade(t);
         Store.log("🟢 خرید " + Fmt.amount(amount) + " " + Market.coinName(m.src)
                 + " در قیمت " + Fmt.quote(price, m.isRls) + " — " + reason);
+        if (cfg.live) {
+            BotService.notifyTrade(ctx, "🟢 خرید انجام شد",
+                    Fmt.amount(amount) + " " + Market.coinName(m.src)
+                            + " × " + Fmt.quote(price, m.isRls) + " " + m.quoteUnit());
+        }
         notifyStatus();
     }
 
@@ -213,6 +242,7 @@ public class BotEngine {
         prefs.setRealizedPnl(realized);
         prefs.setTradeStats(prefs.tradeCount() + 1, prefs.winCount() + (pnl > 0 ? 1 : 0));
         prefs.setPos(false, 0, 0, 0, false);
+        prefs.setPosPeak(0);
         prefs.setLastTradeTime(System.currentTimeMillis());
 
         JSONObject t = new JSONObject();
@@ -228,6 +258,12 @@ public class BotEngine {
                 + " در قیمت " + Fmt.quote(price, m.isRls)
                 + " — نتیجه: " + Fmt.quote(pnl, m.isRls) + " " + m.quoteUnit()
                 + " (" + Fmt.pct(pnlPct) + ") — " + reason);
+        if (wasLive) {
+            BotService.notifyTrade(ctx, pnl >= 0 ? "🔴 فروش با سود" : "🔴 فروش با ضرر",
+                    Fmt.amount(amount) + " " + Market.coinName(m.src)
+                            + " — نتیجه: " + Fmt.quote(pnl, m.isRls) + " " + m.quoteUnit()
+                            + " (" + Fmt.pct(pnlPct) + ")");
+        }
         notifyStatus();
     }
 

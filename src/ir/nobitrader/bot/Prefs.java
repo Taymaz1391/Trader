@@ -29,6 +29,7 @@ public class Prefs {
         public double tradeAmount = 500000; // quote units: toman (IRT markets) or usdt
         public double slPct = 4;
         public double tpPct = 8;
+        public double trailingPct = 0;      // trailing stop, 0 = off
         public boolean live = false;
     }
 
@@ -42,6 +43,7 @@ public class Prefs {
         c.tradeAmount = (double) sp.getFloat("tradeAmount", 500000f);
         c.slPct = (double) sp.getFloat("slPct", 4f);
         c.tpPct = (double) sp.getFloat("tpPct", 8f);
+        c.trailingPct = (double) sp.getFloat("trailingPct", 0f);
         c.live = sp.getBoolean("live", false);
         return c;
     }
@@ -56,6 +58,7 @@ public class Prefs {
                 .putFloat("tradeAmount", (float) c.tradeAmount)
                 .putFloat("slPct", (float) c.slPct)
                 .putFloat("tpPct", (float) c.tpPct)
+                .putFloat("trailingPct", (float) c.trailingPct)
                 .putBoolean("live", c.live)
                 .apply();
     }
@@ -69,6 +72,7 @@ public class Prefs {
     public void setTradeAmount(double v) { sp.edit().putFloat("tradeAmount", (float) v).apply(); }
     public void setSlPct(double v) { sp.edit().putFloat("slPct", (float) v).apply(); }
     public void setTpPct(double v) { sp.edit().putFloat("tpPct", (float) v).apply(); }
+    public void setTrailingPct(double v) { sp.edit().putFloat("trailingPct", (float) v).apply(); }
     public void setLive(boolean v) { sp.edit().putBoolean("live", v).apply(); }
 
     // ---------------------------------------------------------------- state
@@ -89,6 +93,10 @@ public class Prefs {
     public long posTime() { return sp.getLong("posTime", 0); }
     public boolean posLive() { return sp.getBoolean("posLive", false); }
 
+    /** highest price seen since entry (for the trailing stop) */
+    public double posPeak() { return parse(sp.getString("posPeak", "0")); }
+    public void setPosPeak(double v) { sp.edit().putString("posPeak", Double.toString(v)).apply(); }
+
     public double realizedPnl() { return parse(sp.getString("realizedPnl", "0")); }
     public void setRealizedPnl(double v) { sp.edit().putString("realizedPnl", Double.toString(v)).apply(); }
 
@@ -103,6 +111,7 @@ public class Prefs {
 
     public void resetState() {
         setPos(false, 0, 0, 0, false);
+        setPosPeak(0);
         setRealizedPnl(0);
         setTradeStats(0, 0);
         setLastTradeTime(0);
