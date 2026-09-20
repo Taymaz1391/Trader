@@ -1,0 +1,27 @@
+name: Live Nobitex API Test
+
+on:
+  workflow_dispatch:
+  push:
+    branches: [arena/01a0bd9b-trader]
+
+jobs:
+  live:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up JDK 17
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Compile the app's real API classes (no Android deps)
+        run: |
+          mkdir -p build/live
+          javac -encoding UTF-8 -sourcepath src -d build/live livetest/LiveTest.java
+
+      - name: Run live test against the real Nobitex API
+        run: |
+          java -cp build/live ir.nobitrader.bot.LiveTest
