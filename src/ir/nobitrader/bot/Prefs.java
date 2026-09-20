@@ -30,6 +30,8 @@ public class Prefs {
         public double tpPct = 8;
         public double trailingPct = 0;      // trailing stop, 0 = off
         public boolean atrStops = false;    // ATR-based adaptive SL/TP
+        public boolean riskSizing = false;  // dynamic position size by risk
+        public double riskPct = 1.0;        // % of equity risked per trade
         public boolean dca = false;         // dollar-cost averaging mode
         public int dcaIntervalCandles = 24; // one ladder every N closed candles
         public int dcaMaxLadders = 5;       // max ladders per position, 0 = unlimited
@@ -50,6 +52,8 @@ public class Prefs {
         c.tpPct = (double) sp.getFloat("tpPct", 8f);
         c.trailingPct = (double) sp.getFloat("trailingPct", 0f);
         c.atrStops = sp.getBoolean("atrStops", false);
+        c.riskSizing = sp.getBoolean("riskSizing", false);
+        c.riskPct = (double) sp.getFloat("riskPct", 1f);
         c.dca = sp.getBoolean("dca", false);
         c.dcaIntervalCandles = sp.getInt("dcaIntervalCandles", 24);
         c.dcaMaxLadders = sp.getInt("dcaMaxLadders", 5);
@@ -71,6 +75,8 @@ public class Prefs {
                 .putFloat("tpPct", (float) c.tpPct)
                 .putFloat("trailingPct", (float) c.trailingPct)
                 .putBoolean("atrStops", c.atrStops)
+                .putBoolean("riskSizing", c.riskSizing)
+                .putFloat("riskPct", (float) c.riskPct)
                 .putBoolean("dca", c.dca)
                 .putInt("dcaIntervalCandles", c.dcaIntervalCandles)
                 .putInt("dcaMaxLadders", c.dcaMaxLadders)
@@ -91,6 +97,8 @@ public class Prefs {
     public void setTpPct(double v) { sp.edit().putFloat("tpPct", (float) v).apply(); }
     public void setTrailingPct(double v) { sp.edit().putFloat("trailingPct", (float) v).apply(); }
     public void setAtrStops(boolean v) { sp.edit().putBoolean("atrStops", v).apply(); }
+    public void setRiskSizing(boolean v) { sp.edit().putBoolean("riskSizing", v).apply(); }
+    public void setRiskPct(double v) { sp.edit().putFloat("riskPct", (float) v).apply(); }
     public void setDca(boolean v) { sp.edit().putBoolean("dca", v).apply(); }
     public void setDcaInterval(int v) { sp.edit().putInt("dcaIntervalCandles", v).apply(); }
     public void setDcaMax(int v) { sp.edit().putInt("dcaMaxLadders", v).apply(); }

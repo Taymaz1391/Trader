@@ -34,6 +34,8 @@ public class BotEngine {
     public volatile Candle[] lastCandles = new Candle[0];
     public volatile long candlesAt = 0;
 
+    private long lastSpreadWarn = 0;
+
     private BotEngine(Context ctx) {
         this.ctx = ctx;
         this.prefs = new Prefs(ctx);
@@ -85,18 +87,37 @@ public class BotEngine {
     }
 
     private void loop() {
+        int errStreak = 0;
         while (running) {
             int waitSec = 300;
             try {
                 Prefs.Cfg cfg = prefs.cfg();
                 waitSec = cfg.intervalSec;
                 cycle(cfg);
+                errStreak = 0;
             } catch (InterruptedException e) {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Throwable t) {
+                errStreak++;
                 lastError = String.valueOf(t.getMessage() != null ? t.getMessage() : t);
-                Store.log("⚠️ خطا در چرخه بررسی: " + lastError);
+                Store.log("⚠️ خطا در چرخه بررسی (" + errStreak + "): " + lastError);
+                if (errStreak >= 5) {
+                    Store.log("⛔ توقف خودکار ربات پس از ۵ خطای متوالی");
+                    sendTg(prefs.cfg(), "⛔ ربات پس از ۵ خطای متوالی متوقف شد: " + lastError);
+                    BotService.notifyTrade(ctx, "⛔ توقف خودکار ربات", "۵ خطای متوالی: " + lastError);
+                    final Context c = ctx;
+                    new Thread(new Runnable() {
+                        public void run() {
+                            try {
+                                Thread.sleep(800);
+                                BotService.stop(c);
+                            } catch (Exception ignored) {
+                            }
+                        }
+                    }).start();
+                    return;
+                }
             }
             try {
                 Thread.sleep(Math.max(30, waitSec) * 1000L);
@@ -123,11 +144,18 @@ public class BotEngine {
         lastCandles = cs;
         candlesAt = System.currentTimeMillis();
 
-        double price;
+        double price, buyPrice, sellPrice;
+        boolean spreadOk = true;
         try {
-            price = api.lastPrice(m.symbol);
+            NobitexApi.Book bk = api.book(m.symbol);
+            price = bk.last > 0 ? bk.last : cs[cs.length - 1].c;
+            buyPrice = bk.ask > 0 ? bk.ask : price;
+            sellPrice = bk.bid > 0 ? bk.bid : price;
+            spreadOk = bk.spreadPct() <= 1.5;
         } catch (Exception e) {
             price = cs[cs.length - 1].c;
+            buyPrice = price;
+            sellPrice = price;
         }
         lastPrice = price;
         try {
@@ -141,28 +169,49 @@ public class BotEngine {
         int i = cs.length - 2; // last CLOSED candle
         if (i < Strategy.WARMUP) return;
 
+        if (!spreadOk) {
+            long now = System.currentTimeMillis();
+            if (now - lastSpreadWarn > 1_800_000L) {
+                lastSpreadWarn = now;
+                Store.log("⚠️ اسپرد بازار زیاد است؛ تا نرمال شدن، معامله انجام نمی‌شود");
+            }
+        }
+
         if (prefs.posActive()) {
-            managePosition(cfg, m, api, strat, cs, c, i, price);
+            managePosition(cfg, m, api, strat, cs, c, i, price, buyPrice, sellPrice, spreadOk);
         } else {
             long cooldown = Math.max(600_000L, cfg.intervalSec * 2000L);
             long since = System.currentTimeMillis() - prefs.lastTradeTime();
             if (since < cooldown) return; // just closed a trade, wait
             if (cfg.dca) {
-                buy(cfg, m, api, price, "خرید پله‌ای — پله ۱", cs[i].t);
+                if (spreadOk) {
+                    buy(cfg, m, api, buyPrice, effSlPct(cfg, c, i, buyPrice),
+                            "خرید پله‌ای — پله ۱", cs[i].t);
+                }
             } else {
                 int sig = strat.signal(cs, i, c);
-                if (sig == Strategy.BUY) {
-                    buy(cfg, m, api, price, strat.reason, cs[i].t);
+                if (sig == Strategy.BUY && spreadOk) {
+                    buy(cfg, m, api, buyPrice, effSlPct(cfg, c, i, buyPrice),
+                            strat.reason, cs[i].t);
                 }
             }
         }
     }
 
+    /** effective stop-loss percent at the moment of a new entry */
+    private double effSlPct(Prefs.Cfg cfg, Strategy.Ctx c, int i, double refPrice) {
+        if (cfg.atrStops && !Double.isNaN(c.atr14[i])) {
+            return Backtester.atrStopsPct(c.atr14[i], refPrice, cfg.slPct, cfg.tpPct)[0];
+        }
+        return cfg.slPct;
+    }
+
     private void managePosition(Prefs.Cfg cfg, Market m, NobitexApi api, Strategy strat,
-                                Candle[] cs, Strategy.Ctx c, int i, double price) throws Exception {
+                                Candle[] cs, Strategy.Ctx c, int i, double markPrice,
+                                double buyPrice, double sellPrice, boolean spreadOk) throws Exception {
         double entry = prefs.posEntry();
         double amount = prefs.posAmount();
-        double pnlPct = entry > 0 ? (price / entry - 1.0) * 100.0 : 0;
+        double pnlPct = entry > 0 ? (sellPrice / entry - 1.0) * 100.0 : 0;
 
         // effective stops: ATR-adaptive when enabled, otherwise the fixed percents
         double slPct = cfg.slPct;
@@ -176,13 +225,13 @@ public class BotEngine {
         // trailing stop: track the peak price since entry
         double peak = prefs.posPeak();
         if (cfg.trailingPct > 0) {
-            if (price > peak) {
-                peak = price;
+            if (sellPrice > peak) {
+                peak = sellPrice;
                 prefs.setPosPeak(peak);
             }
         }
         boolean trailStop = cfg.trailingPct > 0 && peak > 0
-                && price <= peak * (1.0 - cfg.trailingPct / 100.0);
+                && sellPrice <= peak * (1.0 - cfg.trailingPct / 100.0);
 
         boolean stop = pnlPct <= -slPct || trailStop;
         boolean take = pnlPct >= tpPct;
@@ -191,7 +240,7 @@ public class BotEngine {
         if (stop || take || sig == Strategy.SELL) {
             String reason;
             if (trailStop && pnlPct > -slPct) {
-                reason = "حد ضرر متحرک (افت " + Fmt.pct((price / peak - 1.0) * 100.0) + " از اوج)";
+                reason = "حد ضرر متحرک (افت " + Fmt.pct((sellPrice / peak - 1.0) * 100.0) + " از اوج)";
             } else if (stop) {
                 reason = "فعال شدن حد ضرر " + (cfg.atrStops ? "تطبیقی ATR " : "")
                         + "(" + Fmt.pct(pnlPct) + "، حد: " + Fmt.pct(-slPct) + ")";
@@ -200,17 +249,17 @@ public class BotEngine {
             } else {
                 reason = "سیگنال فروش: " + strat.reason;
             }
-            sell(cfg, m, api, price, reason);
+            sell(cfg, m, api, sellPrice, reason);
             return;
         }
 
         // DCA: add another ladder on schedule
-        if (cfg.dca) {
+        if (cfg.dca && spreadOk) {
             boolean maxOk = cfg.dcaMaxLadders <= 0 || prefs.posLadders() < cfg.dcaMaxLadders;
             long tfSec = Market.tfSeconds(cfg.resolution);
             long lastT = prefs.posLastLadder();
             if (maxOk && lastT > 0 && cs[i].t - lastT >= cfg.dcaIntervalCandles * tfSec) {
-                ladderBuy(cfg, m, api, price, cs[i].t);
+                ladderBuy(cfg, m, api, buyPrice, slPct, cs[i].t);
             }
         }
     }
@@ -218,9 +267,29 @@ public class BotEngine {
     // ------------------------------------------------------------------
 
     /** shared market buy; returns the filled base amount, or 0 when nothing was bought */
-    private double executeBuy(Prefs.Cfg cfg, Market m, NobitexApi api, double price) throws Exception {
-        double quoteAmount = m.isRls ? cfg.tradeAmount * 10.0 : cfg.tradeAmount; // toman -> rials
+    private double executeBuy(Prefs.Cfg cfg, Market m, NobitexApi api, double price,
+                              double slEffPct) throws Exception {
         double minQuote = m.isRls ? NobitexApi.MIN_RLS : NobitexApi.MIN_USDT;
+        double baseSpend = m.isRls ? cfg.tradeAmount * 10.0 : cfg.tradeAmount; // toman -> rials
+        double quoteAmount = baseSpend;
+        if (cfg.riskSizing) {
+            double equity = -1;
+            if (cfg.live) {
+                try {
+                    equity = api.walletBalance(m.dst);
+                } catch (Exception ignored) {
+                }
+            } else {
+                equity = baseSpend + prefs.realizedPnl();
+            }
+            double sized = Backtester.sizeFor(equity, cfg.riskPct, slEffPct, baseSpend, minQuote * 1.05);
+            if (sized != baseSpend) {
+                Store.log("🎯 حجم پویا بر اساس ریسک: " + Fmt.quote(sized, m.isRls)
+                        + " " + m.quoteUnit() + " (ریسک " + Fmt.pct(cfg.riskPct)
+                        + " با حد ضرر " + String.format(java.util.Locale.US, "%.1f", slEffPct) + "٪)");
+                quoteAmount = sized;
+            }
+        }
         if (quoteAmount < minQuote * 1.02) {
             Store.log("❌ مبلغ هر معامله کمتر از حداقل مجاز است ("
                     + Fmt.quote(minQuote, m.isRls) + " " + m.quoteUnit() + ")");
@@ -247,8 +316,9 @@ public class BotEngine {
         return amount * (1.0 - FEE); // paper: pay fee in base
     }
 
-    private void buy(Prefs.Cfg cfg, Market m, NobitexApi api, double price, String reason, long candleT) throws Exception {
-        double amount = executeBuy(cfg, m, api, price);
+    private void buy(Prefs.Cfg cfg, Market m, NobitexApi api, double price, double slEffPct,
+                     String reason, long candleT) throws Exception {
+        double amount = executeBuy(cfg, m, api, price, slEffPct);
         if (amount <= 0) return;
 
         prefs.setPos(true, amount, price, System.currentTimeMillis(), cfg.live);
@@ -275,8 +345,9 @@ public class BotEngine {
     }
 
     /** add a DCA ladder to the open position (weighted-average entry) */
-    private void ladderBuy(Prefs.Cfg cfg, Market m, NobitexApi api, double price, long candleT) throws Exception {
-        double amount = executeBuy(cfg, m, api, price);
+    private void ladderBuy(Prefs.Cfg cfg, Market m, NobitexApi api, double price, double slEffPct,
+                           long candleT) throws Exception {
+        double amount = executeBuy(cfg, m, api, price, slEffPct);
         if (amount <= 0) return;
 
         double oldAmt = prefs.posAmount();

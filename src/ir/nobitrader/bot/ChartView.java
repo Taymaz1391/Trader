@@ -3,24 +3,32 @@ package ir.nobitrader.bot;
 import android.content.Context;
 import android.graphics.Canvas;
 import android.graphics.DashPathEffect;
-import android.graphics.LinearGradient;
 import android.graphics.Paint;
 import android.graphics.Path;
-import android.graphics.Shader;
+import android.view.GestureDetector;
+import android.view.MotionEvent;
+import android.view.ScaleGestureDetector;
 import android.view.View;
 
 /**
- * Professional candlestick chart drawn on a Canvas: green/red candles with
- * wicks, volume bars in a lower band, EMA21 overlay, dashed entry line,
- * horizontal grid with price labels and a last-price marker chip.
+ * Interactive candlestick chart: green/red candles with wicks, volume band,
+ * EMA21 overlay, dashed entry line, axis labels and a last-price chip.
+ * Supports pinch-to-zoom and horizontal drag-to-pan.
  */
 public class ChartView extends View {
+
+    public interface HintHost {
+        void onZoomHint();
+    }
 
     private Candle[] data = new Candle[0];
     private double[] ema = new double[0];
     private double entry;    // 0 = no entry line
     private double last;
     private String lastLabel = "";
+
+    private int visible = 80;   // candles in view
+    private int tail = 0;       // candles hidden at the right edge (pan)
 
     private static final int GREEN = 0xFF16C784;
     private static final int RED = 0xFFEA3943;
@@ -40,6 +48,9 @@ public class ChartView extends View {
     private final Paint txtInvP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint chipP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint lblBgP = new Paint(Paint.ANTI_ALIAS_FLAG);
+
+    private final ScaleGestureDetector scale;
+    private final GestureDetector gest;
 
     public ChartView(Context c) {
         super(c);
@@ -78,6 +89,44 @@ public class ChartView extends View {
         lblBgP.setStyle(Paint.Style.FILL);
         lblBgP.setColor(0xE6101624);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
+
+        scale = new ScaleGestureDetector(c, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
+            @Override
+            public boolean onScale(ScaleGestureDetector det) {
+                float f = det.getScaleFactor();
+                if (f > 0.99f && f < 1.01f) return true;
+                int v = Math.round(visible / f);
+                visible = Math.max(25, Math.min(data.length > 0 ? data.length : 25, v));
+                clampWindow();
+                invalidate();
+                return true;
+            }
+        });
+        gest = new GestureDetector(c, new GestureDetector.SimpleOnGestureListener() {
+            @Override
+            public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
+                if (data.length == 0 || getWidth() == 0) return true;
+                if (scale.isInProgress()) return true;
+                float stepW = (getWidth() - 66 * d()) / (float) visible;
+                if (stepW <= 0) return true;
+                int move = Math.round(dx / stepW);
+                if (move != 0) {
+                    tail = Math.max(0, Math.min(data.length - visible, tail + move));
+                    invalidate();
+                }
+                return true;
+            }
+        });
+    }
+
+    private void clampWindow() {
+        if (data.length == 0) {
+            visible = Math.max(25, visible);
+            tail = 0;
+            return;
+        }
+        visible = Math.max(25, Math.min(data.length, visible));
+        tail = Math.max(0, Math.min(data.length - visible, tail));
     }
 
     private float d() {
@@ -91,6 +140,7 @@ public class ChartView extends View {
         entry = entryPrice;
         last = data.length > 0 ? data[data.length - 1].c : 0;
         lastLabel = label == null ? "" : label;
+        clampWindow();
         invalidate();
     }
 
@@ -101,9 +151,16 @@ public class ChartView extends View {
     }
 
     @Override
+    public boolean onTouchEvent(MotionEvent e) {
+        scale.onTouchEvent(e);
+        gest.onTouchEvent(e);
+        return true;
+    }
+
+    @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
-                Math.round(240 * d()));
+                Math.round(250 * d()));
     }
 
     @Override
@@ -116,29 +173,33 @@ public class ChartView extends View {
             return;
         }
 
-        float padL = 58 * d();   // price axis (left)
+        int end = data.length - tail;
+        int start = Math.max(0, end - visible);
+        int n = end - start;
+        if (n < 2) return;
+
+        float padL = 58 * d();
         float padR = 8 * d();
         float padT = 10 * d();
         float padB = 6 * d();
-        float axisW = padL - 6 * d();
 
         float totalH = getHeight() - padT - padB;
-        float volH = totalH * 0.22f;      // volume band height
+        float volH = totalH * 0.22f;
         float priceH = totalH - volH - 6 * d();
         float w = getWidth() - padL - padR;
 
-        int n = data.length;
         double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
         double volMax = 0;
-        for (Candle k : data) {
+        for (int i = start; i < end; i++) {
+            Candle k = data[i];
             min = Math.min(min, k.l);
             max = Math.max(max, k.h);
             volMax = Math.max(volMax, k.v);
         }
-        for (double v : ema) {
-            if (!Double.isNaN(v)) {
-                min = Math.min(min, v);
-                max = Math.max(max, v);
+        for (int i = start; i < end && i < ema.length; i++) {
+            if (!Double.isNaN(ema[i])) {
+                min = Math.min(min, ema[i]);
+                max = Math.max(max, ema[i]);
             }
         }
         if (entry > 0) {
@@ -156,50 +217,42 @@ public class ChartView extends View {
         float bodyW = Math.max(2 * d(), step * 0.62f);
         float x0 = padL;
 
-        // grid + price labels (4 lines)
         for (int g = 0; g <= 4; g++) {
             double v = min + span * (1.0 - g / 4.0);
             float y = padT + priceH * g / 4f;
             c.drawLine(padL, y, padL + w, y, gridP);
-            txtP.setTextAlign(Paint.Align.RIGHT);
             txtP.setTextAlign(android.graphics.Paint.Align.RIGHT);
             c.drawText(fmtAxis(v), padL - 5 * d(), y + 3.5f * d(), txtP);
             txtP.setTextAlign(Paint.Align.LEFT);
         }
 
-        // volume band baseline
         float volBase = padT + priceH + 6 * d() + volH;
         c.drawLine(padL, volBase, padL + w, volBase, gridP);
 
-        // candles + volume
-        for (int i = 0; i < n; i++) {
+        for (int i = start; i < end; i++) {
             Candle k = data[i];
-            float cx = x0 + step * (i + 0.5f);
+            float cx = x0 + step * (i - start + 0.5f);
             boolean up = k.c >= k.o;
             float yH = padT + (float) ((max - k.h) / span) * priceH;
             float yL = padT + (float) ((max - k.l) / span) * priceH;
             float yO = padT + (float) ((max - k.o) / span) * priceH;
             float yC = padT + (float) ((max - k.c) / span) * priceH;
 
-            // wick
             c.drawLine(cx, yH, cx, yL, up ? wickUp : wickDn);
-            // body
             float top = Math.min(yO, yC);
             float bot = Math.max(yO, yC);
             if (bot - top < 1.2f * d()) bot = top + 1.2f * d();
             c.drawRoundRect(cx - bodyW / 2f, top, cx + bodyW / 2f, bot, 1.5f * d(), 1.5f * d(), up ? bodyUp : bodyDn);
 
-            // volume bar
             float vh = (float) (k.v / volMax) * volH;
             c.drawRect(cx - bodyW / 2f, volBase - vh, cx + bodyW / 2f, volBase, up ? volUp : volDn);
         }
 
-        // EMA line (with soft glow)
         Path ep = new Path();
         boolean started = false;
-        for (int i = 0; i < ema.length && i < n; i++) {
+        for (int i = start; i < end && i < ema.length; i++) {
             if (Double.isNaN(ema[i])) continue;
-            float x = x0 + step * (i + 0.5f);
+            float x = x0 + step * (i - start + 0.5f);
             float y = padT + (float) ((max - ema[i]) / span) * priceH;
             if (!started) {
                 ep.moveTo(x, y);
@@ -213,7 +266,6 @@ public class ChartView extends View {
             c.drawPath(ep, emaP);
         }
 
-        // entry line
         if (entry > 0) {
             float y = padT + (float) ((max - entry) / span) * priceH;
             entryP.setColor(last >= entry ? GREEN : RED);
@@ -224,9 +276,8 @@ public class ChartView extends View {
             c.drawText(tag, padL + 6 * d(), y - 1.5f * d(), txtP);
         }
 
-        // last price chip on the axis
-        if (lastLabel.length() > 0) {
-            boolean up = data[n - 1].c >= data[n - 1].o;
+        if (lastLabel.length() > 0 && tail == 0) {
+            boolean up = data[data.length - 1].c >= data[data.length - 1].o;
             chipP.setColor(up ? GREEN : RED);
             float ly = padT + (float) ((max - last) / span) * priceH;
             float tw = txtInvP.measureText(lastLabel);
@@ -237,7 +288,6 @@ public class ChartView extends View {
         }
     }
 
-    /** short axis label: e.g. 1.24B, 890M, 12.4 (quote units) */
     private String fmtAxis(double v) {
         double a = Math.abs(v);
         if (a >= 1e12) return String.format(java.util.Locale.US, "%.1fT", v / 1e12);

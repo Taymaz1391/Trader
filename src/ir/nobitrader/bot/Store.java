@@ -110,6 +110,18 @@ public class Store {
         return sb.toString();
     }
 
+    /** cumulative realized pnl series: [0, pnl1, pnl1+pnl2, ...] (oldest first) */
+    public static synchronized double[] pnlSeries() {
+        double[] out = new double[trades.size() + 1];
+        double cum = 0;
+        int k = 1;
+        for (JSONObject t : trades) {
+            if (t.has("pnl") && !t.isNull("pnl")) cum += t.optDouble("pnl", 0);
+            out[k++] = cum;
+        }
+        return out;
+    }
+
     /** full trade journal as CSV (latin digits, newest last) */
     public static synchronized String csv() {
         SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);

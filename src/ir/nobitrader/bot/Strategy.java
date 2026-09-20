@@ -189,8 +189,40 @@ public abstract class Strategy {
 
     // ------------------------------------------------------------------
 
+    /** Donchian channel breakout (turtle-style) with volume confirmation. */
+    public static class DonchianBreakout extends Strategy {
+        public String name() { return "شکست کانال دانچین"; }
+
+        public String desc() {
+            return "خرید وقتی قیمت بسته‌شده از بالاترین قیمت ۲۰ کندل قبلی عبور کند (با تأیید حجم و قدرت روند) و فروش با شکست پایین‌ترین قیمت ۱۰ کندل قبلی.";
+        }
+
+        public int signal(Candle[] cs, int i, Ctx ctx) {
+            final int n = 20, m = 10;
+            if (i < n + 1 || i < m + 1) return HOLD;
+            double hh = Double.NEGATIVE_INFINITY, ll = Double.POSITIVE_INFINITY;
+            for (int j = i - n; j < i; j++) hh = Math.max(hh, cs[j].h);
+            for (int j = i - m; j < i; j++) ll = Math.min(ll, cs[j].l);
+            boolean brkUp = cs[i].c > hh;
+            boolean brkDn = cs[i].c < ll;
+            if (brkUp && Ctx.trendOk(ctx.adx14, i) && Ctx.volOk(cs, ctx.volSma20, i, 0.8)
+                    && ctx.rsi14[i] <= 85) {
+                reason = "شکست بالاترین قیمت ۲۰ کندل با حجم کافی";
+                return BUY;
+            }
+            if (brkDn) {
+                reason = "شکست پایین‌ترین قیمت ۱۰ کندل";
+                return SELL;
+            }
+            return HOLD;
+        }
+    }
+
+    // ------------------------------------------------------------------
+
     public static final Strategy[] ALL = new Strategy[]{
-            new MaCross(), new RsiBollinger(), new MacdTrend(), new ComboScore()
+            new MaCross(), new RsiBollinger(), new MacdTrend(), new ComboScore(),
+            new DonchianBreakout()
     };
 
     public static Strategy byId(int id) {

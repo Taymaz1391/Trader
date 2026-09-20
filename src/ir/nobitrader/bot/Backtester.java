@@ -19,6 +19,20 @@ public class Backtester {
         public boolean ok;
     }
 
+    /**
+     * Risk-based position sizing: the quote amount to spend so that hitting the
+     * stop-loss costs exactly riskPct% of equity. Falls back to the configured
+     * amount when the result is below the exchange minimum or inputs are invalid.
+     */
+    public static double sizeFor(double equity, double riskPct, double slPct,
+                                 double configured, double minQuote) {
+        if (equity <= 0 || riskPct <= 0 || slPct <= 0) return configured;
+        double spend = equity * (riskPct / 100.0) / (slPct / 100.0);
+        spend = Math.min(spend, equity * 0.95);
+        if (spend < minQuote) return configured;
+        return spend;
+    }
+
     /** trailing-stop price for a given peak; NaN when trailing is disabled */
     public static double trailPriceFor(double peak, double trailPct) {
         return trailPct > 0 ? peak * (1.0 - trailPct / 100.0) : Double.NaN;

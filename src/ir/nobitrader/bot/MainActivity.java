@@ -61,10 +61,14 @@ public class MainActivity extends Activity {
     private TextView stratDesc, amountHint, liveWarn, analysisView;
     private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit, tgTokenEdit, tgChatEdit;
     private Spinner symbolSpin, tfSpin, intervalSpin, stratSpin;
-    private Switch liveSwitch, trailSwitch, dcaSwitch, atrSwitch;
+    private Switch liveSwitch, trailSwitch, dcaSwitch, atrSwitch, riskSwitch;
+    private EditText riskEdit;
     private LinearLayout dcaBox;
     private Spinner dcaSpin, dcaMaxSpin;
-    private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn, csvBtn, tgTestBtn;
+    private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn, csvBtn, tgTestBtn, optBtn;
+    private RiskGauge riskGauge;
+    private EquityView equityView;
+    private double lastShownPrice = 0;
     private LinearLayout sellResetRow;
     private ChartView chartView;
 
@@ -74,6 +78,7 @@ public class MainActivity extends Activity {
     private volatile boolean priceBusy = false;
     private volatile boolean chartBusy = false;
     private volatile boolean btBusy = false;
+    private volatile boolean optBusy = false;
 
     // ------------------------------------------------------------------
 
@@ -193,7 +198,9 @@ public class MainActivity extends Activity {
         android.graphics.drawable.GradientDrawable gd = new android.graphics.drawable.GradientDrawable();
         gd.setColor(bgColor);
         gd.setCornerRadius(dp(12));
-        b.setBackground(gd);
+        android.graphics.drawable.RippleDrawable rp = new android.graphics.drawable.RippleDrawable(
+                android.content.res.ColorStateList.valueOf(0x40FFFFFF), gd, null);
+        b.setBackground(rp);
         return b;
     }
 
@@ -311,8 +318,13 @@ public class MainActivity extends Activity {
         posView = text("در انتظار سیگنال خرید…", 14f, TEXT, false);
         posView.setLineSpacing(dp(3), 1f);
         pc.addView(margin(posView, 8));
+        riskGauge = new RiskGauge(this);
+        pc.addView(margin(riskGauge, 4));
         statsView = text("", 13f, TEXT2, false);
         pc.addView(margin(statsView, 6));
+        pc.addView(margin(text("روند سود تجمعی", 13f, GOLD, true), 12));
+        equityView = new EquityView(this);
+        pc.addView(margin(equityView, 4));
         sellResetRow = new LinearLayout(this);
         sellResetRow.setOrientation(LinearLayout.HORIZONTAL);
         sellBtn = button("فروش فوری", RED);
@@ -396,6 +408,20 @@ public class MainActivity extends Activity {
         tpLp.setMarginStart(dp(16));
         slRow.addView(tpCol, tpLp);
         sc.addView(slRow);
+
+        // risk-based dynamic sizing
+        LinearLayout riskHead = row();
+        LinearLayout riskCol = new LinearLayout(this);
+        riskCol.setOrientation(LinearLayout.VERTICAL);
+        riskCol.addView(text("حجم پویا بر اساس ریسک", 14f, TEXT, true));
+        riskCol.addView(text("مبلغ هر معامله طوری محاسبه شود که رسیدن به حد ضرر فقط درصد مشخصی از سرمایه را از دست بدهد", 11f, TEXT2, false));
+        riskHead.addView(riskCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        riskSwitch = new Switch(this);
+        riskHead.addView(riskSwitch);
+        sc.addView(margin(riskHead, 12));
+        riskEdit = numberInput("ریسک هر معامله (٪) — مثلاً 1");
+        riskEdit.setVisibility(View.GONE);
+        sc.addView(riskEdit);
 
         // ATR adaptive stops
         LinearLayout atrHead = row();
@@ -529,6 +555,13 @@ public class MainActivity extends Activity {
         bbLp.topMargin = dp(10);
         backtestBtn.setLayoutParams(bbLp);
         bc.addView(backtestBtn);
+        optBtn = button("🎯 بهینه‌ساز خودکار حد ضرر/سود", 0xFF3A2E12);
+        LinearLayout.LayoutParams obLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        obLp.topMargin = dp(8);
+        optBtn.setLayoutParams(obLp);
+        optBtn.setTextColor(GOLD);
+        bc.addView(optBtn);
         backtestView = text("هر چهار استراتژی روی ۵۰۰ کندل اخیر بازار انتخابی شبیه‌سازی می‌شوند و نتیجه مقایسه داده می‌شود.", 12f, TEXT2, false);
         backtestView.setLineSpacing(dp(3), 1f);
         bc.addView(margin(backtestView, 8));
@@ -554,7 +587,7 @@ public class MainActivity extends Activity {
         root.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.3 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.4 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -702,6 +735,23 @@ public class MainActivity extends Activity {
                 if (isChecked && trailEdit.getText().toString().trim().isEmpty()) {
                     trailEdit.setText("3");
                 }
+            }
+        });
+
+        riskSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                riskEdit.setVisibility(isChecked ? View.VISIBLE : View.GONE);
+                if (isChecked && riskEdit.getText().toString().trim().isEmpty()) {
+                    riskEdit.setText("1");
+                }
+            }
+        });
+
+        optBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runOptimizer();
             }
         });
 
@@ -892,7 +942,17 @@ public class MainActivity extends Activity {
         prefs.setTradeAmount(amount);
         prefs.setSlPct(sl);
         prefs.setTpPct(tp);
+        double risk = 1;
+        if (riskSwitch.isChecked()) {
+            risk = parse(riskEdit.getText().toString(), -1);
+            if (risk < 0.1 || risk > 10) {
+                toast("درصد ریسک هر معامله باید بین ۰.۱ تا ۱۰ باشد");
+                return false;
+            }
+        }
         prefs.setTrailingPct(trail);
+        prefs.setRiskSizing(riskSwitch.isChecked());
+        prefs.setRiskPct(risk);
         prefs.setAtrStops(atrSwitch.isChecked());
         prefs.setDca(dcaSwitch.isChecked());
         prefs.setDcaInterval(new int[]{4, 12, 24, 48}[dcaSpin.getSelectedItemPosition()]);
@@ -921,6 +981,9 @@ public class MainActivity extends Activity {
         trailEdit.setVisibility(c.trailingPct > 0 ? View.VISIBLE : View.GONE);
         tgTokenEdit.setText(c.tgToken);
         tgChatEdit.setText(c.tgChat);
+        riskSwitch.setChecked(c.riskSizing);
+        riskEdit.setText(c.riskSizing ? fmtNum(c.riskPct) : "");
+        riskEdit.setVisibility(c.riskSizing ? View.VISIBLE : View.GONE);
         atrSwitch.setChecked(c.atrStops);
         dcaSwitch.setChecked(c.dca);
         dcaBox.setVisibility(c.dca ? View.VISIBLE : View.GONE);
@@ -1057,6 +1120,89 @@ public class MainActivity extends Activity {
         });
     }
 
+    /** grid-search SL/TP for the selected strategy over recent candles and apply the best */
+    private void runOptimizer() {
+        if (optBusy) return;
+        optBusy = true;
+        optBtn.setEnabled(false);
+        final Prefs.Cfg cfg = prefs.cfg();
+        final Strategy strat = Strategy.byId(cfg.strategyId);
+        backtestView.setText("⏳ بهینه‌سازی در حال اجرا… (" + strat.name() + " روی ۵۰۰ کندل)");
+        startThread(new Runnable() {
+            @Override
+            public void run() {
+                String out;
+                double bestSl = cfg.slPct, bestTp = cfg.tpPct;
+                try {
+                    NobitexApi api = new NobitexApi(null);
+                    Candle[] cs = api.udfHistory(Market.of(cfg.symbol).symbol, cfg.resolution, 500);
+                    double[] sls = {2, 3, 4, 5, 6, 8};
+                    double[] ratios = {1.5, 2.0, 2.5, 3.0};
+                    double best = Double.NEGATIVE_INFINITY;
+                    StringBuilder top = new StringBuilder();
+                    double[] bestNet = {0};
+                    for (double sl : sls) {
+                        for (double rt : ratios) {
+                            double tp = sl * rt;
+                            Backtester.Result r = Backtester.run(strat, cs, sl, tp,
+                                    0, 0, 0, false, Backtester.DEFAULT_FEE);
+                            if (!r.ok) continue;
+                            if (r.netPct > best) {
+                                best = r.netPct;
+                                bestSl = sl;
+                                bestTp = tp;
+                                bestNet[0] = r.netPct;
+                            }
+                        }
+                    }
+                    // rebuild top-3 list
+                    java.util.ArrayList<double[]> results = new java.util.ArrayList<double[]>();
+                    for (double sl : sls) {
+                        for (double rt : ratios) {
+                            Backtester.Result r = Backtester.run(strat, cs, sl, sl * rt,
+                                    0, 0, 0, false, Backtester.DEFAULT_FEE);
+                            if (r.ok) results.add(new double[]{r.netPct, sl, sl * rt, r.trades});
+                        }
+                    }
+                    java.util.Collections.sort(results, new java.util.Comparator<double[]>() {
+                        public int compare(double[] a, double[] b) {
+                            return Double.compare(b[0], a[0]);
+                        }
+                    });
+                    for (int i = 0; i < Math.min(3, results.size()); i++) {
+                        double[] x = results.get(i);
+                        top.append(String.format(Locale.US, "   %.0f%% SL / %.1f%% TP → %+.1f%% (%d معامله)%n",
+                                x[1], x[2], x[0], (int) x[3]));
+                    }
+                    out = "🎯 بهترین ترکیب: حد ضرر " + fmtNum(bestSl) + "٪ / حد سود " + fmtNum(bestTp)
+                            + "٪ → بازده " + Fmt.pct(bestNet[0]) + "\n\nبرترین‌ها:\n" + top.toString().trim()
+                            + "\n\n✅ مقادیر بهینه در تنظیمات اعمال شد.";
+                    final double fSl = bestSl, fTp = bestTp;
+                    postUi(new Runnable() {
+                        @Override
+                        public void run() {
+                            slEdit.setText(fmtNum(fSl));
+                            tpEdit.setText(fmtNum(fTp));
+                        }
+                    });
+                    prefs.setSlPct(fSl);
+                    prefs.setTpPct(fTp);
+                } catch (final Exception e) {
+                    out = "❌ بهینه‌سازی ناموفق: " + (e.getMessage() != null ? e.getMessage() : e);
+                }
+                final String res = out;
+                postUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        backtestView.setText(res);
+                        optBtn.setEnabled(true);
+                        optBusy = false;
+                    }
+                });
+            }
+        });
+    }
+
     private void fetchPrice() {
         if (priceBusy) return;
         priceBusy = true;
@@ -1168,6 +1314,16 @@ public class MainActivity extends Activity {
 
         double p = engine.lastPrice;
         if (p > 0) {
+            if (lastShownPrice > 0 && p != lastShownPrice) {
+                priceView.setTextColor(p > lastShownPrice ? GREEN : RED);
+                ui.postDelayed(new Runnable() {
+                    @Override
+                    public void run() {
+                        priceView.setTextColor(TEXT);
+                    }
+                }, 700);
+            }
+            lastShownPrice = p;
             priceView.setText(Fmt.quote(p, m.isRls) + " " + m.quoteUnit());
             double ch = engine.dayChangePct;
             if (ch != 0) {
@@ -1203,6 +1359,11 @@ public class MainActivity extends Activity {
         }
         sellResetRow.setVisibility(inPos ? View.VISIBLE : View.GONE);
         chartView.updateEntry(inPos ? prefs.posEntry() : 0);
+        if (inPos) {
+            riskGauge.setData(prefs.posEntry(), p > 0 ? p : prefs.posEntry(),
+                    cfg.atrStops ? cfg.slPct : cfg.slPct, cfg.tpPct);
+        }
+        riskGauge.setVisibility(inPos ? View.VISIBLE : View.GONE);
 
         double realized = prefs.realizedPnl();
         statsView.setTextColor(realized > 0 ? GREEN : (realized < 0 ? RED : TEXT2));
@@ -1213,6 +1374,7 @@ public class MainActivity extends Activity {
 
         if (shownVersion != Store.version()) {
             shownVersion = Store.version();
+            equityView.setData(Store.pnlSeries());
             String lt = Store.logText(25);
             String tt = Store.tradesText(m, 8);
             if (tt.length() > 0) {

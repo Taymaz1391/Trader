@@ -125,11 +125,34 @@ public class NobitexApi {
 
     /** last traded price from the v3 orderbook */
     public double lastPrice(String symbol) throws Exception {
+        return book(symbol).last;
+    }
+
+    /** top of the order book: best bid / best ask / last trade */
+    public static class Book {
+        public double bid, ask, last;
+
+        /** relative spread between best ask and bid (fraction, e.g. 0.004 = 0.4%) */
+        public double spreadPct() {
+            if (bid <= 0 || ask <= 0) return 0;
+            return (ask / bid - 1.0) * 100.0;
+        }
+    }
+
+    public Book book(String symbol) throws Exception {
         JSONObject o = new JSONObject(http("/v3/orderbook/" + symbol, false, null, false));
         if (!"ok".equals(o.optString("status"))) {
-            throw new ApiError("خطای دریافت قیمت", 0, "OrderbookError");
+            throw new ApiError("خطای دریافت دفتر سفارش", 0, "OrderbookError");
         }
-        return o.getDouble("lastTradePrice");
+        Book b = new Book();
+        b.last = o.optDouble("lastTradePrice", 0);
+        JSONArray bids = o.optJSONArray("bids");
+        JSONArray asks = o.optJSONArray("asks");
+        if (bids != null && bids.length() > 0) b.bid = bids.getJSONArray(0).getDouble(0);
+        if (asks != null && asks.length() > 0) b.ask = asks.getJSONArray(0).getDouble(0);
+        if (b.bid <= 0) b.bid = b.last;
+        if (b.ask <= 0) b.ask = b.last;
+        return b;
     }
 
     public static class DayStats {
