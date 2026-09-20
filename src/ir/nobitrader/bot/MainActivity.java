@@ -846,7 +846,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.9.1 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.9.2 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2035,16 +2035,40 @@ public class MainActivity extends Activity {
         prefs.setToken(key);
         prefs.setApiSecret(secret);
         connView.setText("⏳ در حال تست اتصال…");
+        connView.setTextColor(TEXT2);
         new Thread(new Runnable() {
             @Override
             public void run() {
-                final NobitexApi.ConnResult r = new NobitexApi(key, secret).testConnection();
+                boolean ok = false;
+                String detail;
+                try {
+                    NobitexApi api = new NobitexApi(key, secret);
+                    NobitexApi.ConnResult r = api.testConnection();
+                    ok = r.ok;
+                    detail = r.detail;
+                    if (ok) {
+                        // با موفقیت: موجودی واقعی حساب را هم نشان بده — اثبات کامل دسترسی
+                        try {
+                            double rls = api.walletBalance("rls");
+                            double usdt = api.walletBalance("usdt");
+                            StringBuilder sb = new StringBuilder(detail);
+                            if (rls >= 0) sb.append("\n💰 موجودی ریالی: ").append(Fmt.quote(rls, true)).append(" تومان");
+                            if (usdt >= 0) sb.append("\n💰 موجودی تتر: ").append(Fmt.amount(usdt)).append(" USDT");
+                            detail = sb.toString();
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                } catch (Exception e) {
+                    detail = "❌ خطا: " + e.getMessage();
+                }
+                final boolean fok = ok;
+                final String fdetail = detail;
                 postUi(new Runnable() {
                     @Override
                     public void run() {
-                        connView.setText(r.detail);
-                        connView.setTextColor(r.ok ? GREEN : RED);
-                        toast(r.ok ? "اتصال برقرار شد ✅" : "اتصال ناموفق");
+                        connView.setText(fdetail);
+                        connView.setTextColor(fok ? GREEN : RED);
+                        toast(fok ? "اتصال برقرار شد ✅" : "اتصال ناموفق");
                     }
                 });
             }

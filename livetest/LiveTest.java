@@ -106,6 +106,29 @@ public class LiveTest {
         }
 
         System.out.println();
+        System.out.println("=== 4) REAL credentials (from env NOBI_KEY/NOBI_SECRET) ===");
+        String rk = System.getenv("NOBI_KEY");
+        String rs = System.getenv("NOBI_SECRET");
+        if (rk == null || rk.isEmpty() || rs == null || rs.isEmpty()) {
+            System.out.println("no real credentials provided — skipped (this is normal)");
+        } else {
+            try {
+                NobitexApi real = new NobitexApi(rk, rs);
+                System.out.println("mode            : " + (real.isKeyAuth() ? "API-key (Ed25519)" : "classic token"));
+                NobitexApi.ConnResult rr = real.testConnection();
+                System.out.println("testConnection  : ok=" + rr.ok);
+                System.out.println(rr.detail);
+                if (rr.ok) {
+                    double rls = real.walletBalance("rls");
+                    System.out.println("wallet RLS      : " + rls);
+                }
+            } catch (Exception e) {
+                failures++;
+                System.out.println("  FAIL real-key test: " + e);
+            }
+        }
+
+        System.out.println();
         if (failures == 0) {
             System.out.println("LIVE TEST: public pipeline OK, auth paths answered by the real server.");
         } else {

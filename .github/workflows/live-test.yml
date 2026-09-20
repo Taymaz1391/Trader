@@ -24,6 +24,9 @@ jobs:
           javac -encoding UTF-8 -sourcepath src -d build/live livetest/LiveTest.java
 
       - name: Run live test against the real Nobitex API
+        env:
+          NOBI_KEY: ${{ secrets.NOBI_KEY }}
+          NOBI_SECRET: ${{ secrets.NOBI_SECRET }}
         run: |
           java -cp build/live ir.nobitrader.bot.LiveTest 2>&1 | tee livetest/last-run.log
 
