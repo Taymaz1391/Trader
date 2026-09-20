@@ -118,11 +118,18 @@ public class NobitexApi {
                 throw new ApiError("تعداد درخواست‌ها زیاد است؛ کمی صبر کنید (429)", 429, "TooManyRequests");
             }
             if (code >= 400) {
-                String em = "خطای سرور " + code;
+                String em;
+                if (code == 401) {
+                    em = "احراز هویت رد شد (401) — کلید یا امضا نامعتبر است";
+                } else if (code == 403) {
+                    em = "دسترسی ممنوع (403) — مجوز کلید کافی نیست یا IP مجاز نیست";
+                } else {
+                    em = "خطای سرور " + code;
+                }
                 try {
                     JSONObject eo = new JSONObject(body);
                     String m = errText(eo);
-                    if (!m.isEmpty()) em = m + " (HTTP " + code + ")";
+                    if (!m.isEmpty() && code != 401 && code != 403) em = m + " (HTTP " + code + ")";
                 } catch (Throwable ignored) {
                 }
                 throw new ApiError(em, code, "Http" + code);
@@ -144,6 +151,21 @@ public class NobitexApi {
 
     /** OHLCV history (last candle may be the still-forming one). */
     public Candle[] udfHistory(String symbol, String resolution, int countback) throws Exception {
+        return udfHistory(symbol, resolution, countback, null);
+    }
+
+    /**
+     * OHLCV history normalized to the quote unit of the orderbook/stats.
+     * Nobitex's UDF feed prices IRT (rial) markets in toman while the
+     * orderbook and stats endpoints use rials — a silent 10x mismatch that
+     * broke the chart scale and ATR stops. When a stable integer multiple
+     * between the last close and the reference price exists, all OHLC
+     * values are rescaled to match.
+     *
+     * @param lastRef reference price in quote units (e.g. book last); null = fetch it
+     */
+    public Candle[] udfHistory(String symbol, String resolution, int countback, Double lastRef)
+            throws Exception {
         long to = System.currentTimeMillis() / 1000L;
         String path = "/market/udf/history?symbol=" + symbol + "&resolution=" + resolution
                 + "&to=" + to + "&countback=" + countback;
@@ -162,6 +184,25 @@ public class NobitexApi {
         for (int i = 0; i < n; i++) {
             out[i] = new Candle(t.getLong(i), op.getDouble(i), h.getDouble(i),
                     l.getDouble(i), cl.getDouble(i), v.getDouble(i));
+        }
+        // ---- unit normalization (toman vs rial feeds) ----
+        if (n > 0 && out[n - 1].c > 0) {
+            try {
+                double ref = (lastRef != null && lastRef > 0) ? lastRef : book(symbol).last;
+                if (ref > 0) {
+                    double ratio = ref / out[n - 1].c;
+                    long r = Math.round(ratio);
+                    if (r >= 2 && r <= 10000 && Math.abs(ratio - r) / r < 0.02) {
+                        double k = (double) r;
+                        for (int i = 0; i < n; i++) {
+                            out[i] = new Candle(out[i].t, out[i].o * k, out[i].h * k,
+                                    out[i].l * k, out[i].c * k, out[i].v);
+                        }
+                    }
+                }
+            } catch (Throwable ignored) {
+                // keep the raw feed if the reference price is unavailable
+            }
         }
         return out;
     }

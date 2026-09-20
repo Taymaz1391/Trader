@@ -38,13 +38,20 @@ public class LiveTest {
             System.out.println("  FAIL orderbook: " + e);
         }
         try {
-            Candle[] cs = pub.udfHistory("BTCIRT", "60", 24);
-            System.out.println("udf history 1h x24: " + cs.length + " candles, last close=" + cs[cs.length - 1].c);
+            NobitexApi.Book bk = pub.book("BTCIRT");
+            Candle[] cs = pub.udfHistory("BTCIRT", "60", 24, bk.last);
+            double lastClose = cs[cs.length - 1].c;
+            double ratio = lastClose / bk.last;
+            System.out.println("udf history 1h x24: " + cs.length + " candles, last close=" + lastClose
+                    + " (book last=" + bk.last + ", ratio=" + String.format(java.util.Locale.US, "%.4f", ratio) + ")");
             if (cs.length < 10) {
                 failures++;
                 System.out.println("  FAIL: too few candles");
+            } else if (Math.abs(ratio - 1.0) > 0.02) {
+                failures++;
+                System.out.println("  FAIL: candle unit != orderbook unit (ratio " + ratio + ")");
             } else {
-                System.out.println("  OK");
+                System.out.println("  OK — candles normalized to the orderbook quote unit");
             }
         } catch (Exception e) {
             failures++;
