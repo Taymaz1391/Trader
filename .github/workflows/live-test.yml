@@ -1,8 +1,6 @@
 name: Live Nobitex API Test
 
 on:
-  push:
-    branches: [arena/01a0bd9b-trader]
   workflow_dispatch:
 
 jobs:
