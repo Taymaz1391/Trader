@@ -181,7 +181,7 @@ public class SelfTest {
         double[] bad = Backtester.atrStopsPct(Double.NaN, 100, 4, 8);
         check(bad[0] == 4 && bad[1] == 8, "atr NaN falls back to fixed stops");
         for (int s = 0; s < Strategy.ALL.length; s++) {
-            Backtester.Result ra = Backtester.run(Strategy.ALL[s], cs, 4, 8, 0, 0, 0, true, Backtester.DEFAULT_FEE);
+            Backtester.Result ra = Backtester.run(Strategy.ALL[s], cs, 4, 8, 0, 0, 0, true, false, Backtester.DEFAULT_FEE);
             check(ra.ok && !Double.isNaN(ra.netPct), Strategy.ALL[s].name() + ": atr-stops backtest completes");
         }
 
@@ -194,7 +194,7 @@ public class SelfTest {
             double c = 100 * Math.pow(1.004, i);
             rise[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
         }
-        Backtester.Result rd = Backtester.run(Strategy.ALL[0], rise, 90, 25, 0, 12, 0, false, 0.0);
+        Backtester.Result rd = Backtester.run(Strategy.ALL[0], rise, 90, 25, 0, 12, 0, false, false, 0.0);
         check(rd.ok, "dca completes on rising market");
         check(rd.netPct > 0, "dca profits on steady rise (" + String.format("%.2f", rd.netPct) + "%)");
         check(rd.netPct < rd.bhPct, "dca below buy&hold on steady rise");
@@ -205,7 +205,7 @@ public class SelfTest {
             double c = 100 * Math.pow(0.996, i);
             fall[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
         }
-        Backtester.Result fd = Backtester.run(Strategy.ALL[0], fall, 90, 1000, 0, 12, 0, false, 0.0);
+        Backtester.Result fd = Backtester.run(Strategy.ALL[0], fall, 90, 1000, 0, 12, 0, false, false, 0.0);
         check(fd.ok, "dca completes on falling market");
         check(fd.netPct > fd.bhPct, "dca loses less than buy&hold on steady fall ("
                 + String.format("%.2f", fd.netPct) + "% vs " + String.format("%.2f", fd.bhPct) + "%)");
@@ -242,7 +242,7 @@ public class SelfTest {
             }
         }
         check(sellFound, "donchian SELL on downside breakdown");
-        Backtester.Result dkr = Backtester.run(dk, dkc, 5, 10, 0, 0, 0, false, Backtester.DEFAULT_FEE);
+        Backtester.Result dkr = Backtester.run(dk, dkc, 5, 10, 0, 0, 0, false, false, Backtester.DEFAULT_FEE);
         check(dkr.ok, "donchian backtest completes");
 
         System.out.println("== risk sizing ==");
@@ -274,6 +274,56 @@ public class SelfTest {
         check(s1.length == 4, "series length = trades+1");
         check(s1[0] == 0 && s1[1] == 0 && Math.abs(s1[2] - 10.0) < 1e-9 && Math.abs(s1[3] - 6.0) < 1e-9,
                 "cumulative values [0,0,10,6]");
+
+        System.out.println("== partial take-profit (TP1) ==");
+        Strategy fixedBuy2 = new Strategy() {
+            public String name() { return "test-fixed-buy2"; }
+            public String desc() { return "test"; }
+            public int signal(Candle[] cs, int i, Ctx ctx) { return i == 60 ? BUY : HOLD; }
+        };
+        // flat through the entry bar (close=100), then a steady rise crossing 104 and 108
+        Candle[] upC = new Candle[120];
+        for (int i = 0; i <= 60; i++) upC[i] = new Candle(1_700_000_000L + i * 3600L, 100, 100.2, 99.8, 100, 10);
+        for (int i = 61; i < 120; i++) {
+            double c = 100 * (1.0 + 0.005 * (i - 60));
+            upC[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
+        }
+        Backtester.Result full8 = Backtester.run(fixedBuy2, upC, 50, 8, 0, 0, 0, false, false, 0.0);
+        Backtester.Result withTp1 = Backtester.run(fixedBuy2, upC, 50, 8, 0, 0, 0, false, true, 0.0);
+        check(full8.ok && Math.abs(full8.netPct - 8.0) < 1e-9,
+                "no-TP1: full exit at TP=8% (net=" + full8.netPct + ")");
+        check(withTp1.ok && Math.abs(withTp1.netPct - 6.0) < 0.05,
+                "TP1: half at 4% + half at 8% => +6% (net=" + withTp1.netPct + ")");
+
+        // rise to +4.5% (TP1 hit) then fall back below entry: breakeven exit for the rest
+        // flat entry at 100, rise to +4.5% (TP1 only), then fall back below entry
+        Candle[] mixC = new Candle[120];
+        for (int i = 0; i <= 60; i++) mixC[i] = new Candle(1_700_000_000L + i * 3600L, 100, 100.2, 99.8, 100, 10);
+        for (int i = 61; i <= 80; i++) {
+            double c = 100 * (1.0 + 0.045 * (i - 60) / 20.0);
+            mixC[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
+        }
+        for (int i = 81; i < 120; i++) {
+            double c = 104.5 - (i - 80) * 0.7;
+            mixC[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
+        }
+        Backtester.Result be = Backtester.run(fixedBuy2, mixC, 50, 8, 0, 0, 0, false, true, 0.0);
+        check(be.ok && Math.abs(be.netPct - 2.0) < 0.1,
+                "TP1 then fallback: half at ~4% + half at breakeven = +2% (net=" + be.netPct + ")");
+
+        System.out.println("== markers ==");
+        Store.clear();
+        JSONObject mb = new JSONObject();
+        mb.put("time", 1_700_000_123_000L).put("side", "buy").put("price", 5.0).put("amount", 1.0).put("live", false);
+        Store.trade(mb);
+        JSONObject ms = new JSONObject();
+        ms.put("time", 1_700_000_456_000L).put("side", "sell").put("price", 6.0).put("amount", 1.0)
+                .put("pnl", 1.0).put("pnlPct", 20.0).put("live", false);
+        Store.trade(ms);
+        java.util.ArrayList<double[]> mk = Store.markers();
+        check(mk.size() == 2, "markers size = trades");
+        check(Math.abs(mk.get(0)[0] - 1_700_000_123.0) < 1e-6 && mk.get(0)[2] == 1, "buy marker time+side");
+        check(Math.abs(mk.get(1)[1] - 6.0) < 1e-9 && mk.get(1)[2] == -1, "sell marker price+side");
 
         System.out.println("== fmt ==");
         check("100,000".equals(Fmt.toman(1_000_001)), "toman rounding + grouping: " + Fmt.toman(1_000_001));

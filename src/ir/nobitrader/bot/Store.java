@@ -110,6 +110,16 @@ public class Store {
         return sb.toString();
     }
 
+    /** chart markers from the trade journal: {timeSec, price, side(+1 buy/-1 sell)} */
+    public static synchronized java.util.ArrayList<double[]> markers() {
+        java.util.ArrayList<double[]> out = new java.util.ArrayList<double[]>();
+        for (JSONObject t : trades) {
+            double side = "buy".equals(t.optString("side")) ? 1 : -1;
+            out.add(new double[]{t.optLong("time", 0) / 1000.0, t.optDouble("price", 0), side});
+        }
+        return out;
+    }
+
     /** cumulative realized pnl series: [0, pnl1, pnl1+pnl2, ...] (oldest first) */
     public static synchronized double[] pnlSeries() {
         double[] out = new double[trades.size() + 1];

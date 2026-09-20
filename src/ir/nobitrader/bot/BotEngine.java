@@ -181,6 +181,8 @@ public class BotEngine {
             managePosition(cfg, m, api, strat, cs, c, i, price, buyPrice, sellPrice, spreadOk);
         } else {
             long cooldown = Math.max(600_000L, cfg.intervalSec * 2000L);
+            int consec = prefs.consecLosses();
+            if (consec >= 2) cooldown *= 2; // cool down longer after a losing streak
             long since = System.currentTimeMillis() - prefs.lastTradeTime();
             if (since < cooldown) return; // just closed a trade, wait
             if (cfg.dca) {
@@ -233,13 +235,29 @@ public class BotEngine {
         boolean trailStop = cfg.trailingPct > 0 && peak > 0
                 && sellPrice <= peak * (1.0 - cfg.trailingPct / 100.0);
 
-        boolean stop = pnlPct <= -slPct || trailStop;
+        // partial take-profit: bank half the position at half the TP distance
+        if (cfg.tp1Enabled && !prefs.posTp1Taken()) {
+            double tp1Pct = tpPct / 2.0;
+            if (pnlPct >= tp1Pct) {
+                sellFraction(cfg, m, api, sellPrice, 0.5,
+                        "برداشت سود پله‌ای (TP1 در " + Fmt.pct(tp1Pct) + ")");
+                prefs.setPosTp1Taken(true);
+                return;
+            }
+        }
+
+        // after TP1 the remainder is protected at breakeven
+        boolean beStop = prefs.posTp1Taken() && pnlPct <= -0.25;
+
+        boolean stop = pnlPct <= -slPct || trailStop || beStop;
         boolean take = pnlPct >= tpPct;
         int sig = strat.signal(cs, i, c);
 
         if (stop || take || sig == Strategy.SELL) {
             String reason;
-            if (trailStop && pnlPct > -slPct) {
+            if (beStop && !trailStop) {
+                reason = "توقف بی‌ضرر (حفظ سرمایه پس از برداشت سود)";
+            } else if (trailStop && pnlPct > -slPct) {
                 reason = "حد ضرر متحرک (افت " + Fmt.pct((sellPrice / peak - 1.0) * 100.0) + " از اوج)";
             } else if (stop) {
                 reason = "فعال شدن حد ضرر " + (cfg.atrStops ? "تطبیقی ATR " : "")
@@ -407,6 +425,12 @@ public class BotEngine {
         prefs.setPosPeak(0);
         prefs.setPosLadders(0);
         prefs.setPosLastLadder(0);
+        prefs.setPosTp1Taken(false);
+        if (pnl < 0) {
+            prefs.setConsecLosses(prefs.consecLosses() + 1);
+        } else {
+            prefs.setConsecLosses(0);
+        }
         prefs.setLastTradeTime(System.currentTimeMillis());
 
         JSONObject t = new JSONObject();
@@ -447,6 +471,56 @@ public class BotEngine {
         } catch (Exception e) {
             Store.log("❌ فروش دستی ناموفق: " + (e.getMessage() != null ? e.getMessage() : e));
         }
+    }
+
+    /** sell a fraction of the open position (partial take-profit) */
+    private void sellFraction(Prefs.Cfg cfg, Market m, NobitexApi api, double price, double frac,
+                              String reason) throws Exception {
+        double posAmt = prefs.posAmount();
+        double amount = Fmt.amountFloor(posAmt * frac);
+        if (amount <= 0) return;
+        boolean wasLive = prefs.posLive();
+        double entry = prefs.posEntry();
+
+        if (wasLive) {
+            JSONObject order = api.addMarketOrder("sell", m.src, m.dst, amount);
+            long id = order != null ? order.optLong("id", 0) : 0;
+            Store.log("⚡ سفارش فروش پله‌ای واقعی ثبت شد (شناسه " + id + ")");
+            double matched = waitAndMatch(api, id, amount);
+            if (matched <= 0) return;
+            amount = Math.min(amount, matched);
+        }
+
+        double pnl = (price - entry) * amount - price * amount * FEE;
+        double remaining = posAmt - amount;
+        prefs.setPos(remaining > 0, remaining, entry, prefs.posTime(), wasLive);
+        prefs.setRealizedPnl(prefs.realizedPnl() + pnl);
+        prefs.setTradeStats(prefs.tradeCount() + 1, prefs.winCount() + (pnl > 0 ? 1 : 0));
+
+        JSONObject t = new JSONObject();
+        t.put("time", System.currentTimeMillis());
+        t.put("side", "sell");
+        t.put("price", price);
+        t.put("amount", amount);
+        t.put("pnl", pnl);
+        t.put("pnlPct", entry > 0 ? (price / entry - 1.0) * 100.0 : 0);
+        t.put("partial", true);
+        t.put("live", wasLive);
+        Store.trade(t);
+        Store.log("🟡 فروش پله‌ای " + Fmt.amount(amount) + " " + Market.coinName(m.src)
+                + " در قیمت " + Fmt.quote(price, m.isRls)
+                + " — سود قطعی: " + Fmt.quote(pnl, m.isRls) + " " + m.quoteUnit()
+                + " — " + reason);
+        if (wasLive) {
+            BotService.notifyTrade(ctx, "🟡 برداشت سود پله‌ای",
+                    Fmt.amount(amount) + " " + Market.coinName(m.src)
+                            + " — سود: " + Fmt.quote(pnl, m.isRls) + " " + m.quoteUnit());
+        }
+        sendTg(cfg, "🟡 فروش پله‌ای " + Fmt.amount(amount) + " " + Market.coinName(m.src)
+                + " در " + Fmt.quote(price, m.isRls) + " " + m.quoteUnit()
+                + " — سود قطعی: " + Fmt.quote(pnl, m.isRls)
+                + (wasLive ? " ⚡" : " (شبیه‌سازی)"));
+        notifyStatus();
     }
 
     /** poll the order status once after a short delay to learn the matched amount */

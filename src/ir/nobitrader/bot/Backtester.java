@@ -53,12 +53,12 @@ public class Backtester {
     }
 
     public static Result run(Strategy st, Candle[] candles, double slPct, double tpPct) {
-        return run(st, candles, slPct, tpPct, 0, 0, 0, false, DEFAULT_FEE);
+        return run(st, candles, slPct, tpPct, 0, 0, 0, false, false, DEFAULT_FEE);
     }
 
     public static Result run(Strategy st, Candle[] candles, double slPct, double tpPct,
                              double trailPct, double fee) {
-        return run(st, candles, slPct, tpPct, trailPct, 0, 0, false, fee);
+        return run(st, candles, slPct, tpPct, trailPct, 0, 0, false, false, fee);
     }
 
     /**
@@ -66,20 +66,21 @@ public class Backtester {
      * @param dcaInterval DCA ladder spacing in candles (0 = signal entries)
      * @param dcaMax      max DCA ladders per position (0 = unlimited)
      * @param atrStops    ATR-based adaptive SL/TP instead of fixed percents
+     * @param tp1Enabled  partial take-profit at half the TP distance
      */
     public static Result run(Strategy st, Candle[] candles, double slPct, double tpPct,
                              double trailPct, double dcaInterval, double dcaMax,
-                             boolean atrStops, double fee) {
+                             boolean atrStops, boolean tp1Enabled, double fee) {
         if (dcaInterval > 0) {
             return runDca(st, candles, slPct, tpPct, trailPct,
                     (int) Math.max(1, dcaInterval), (int) Math.max(0, dcaMax), atrStops, fee);
         }
-        return runSignal(st, candles, slPct, tpPct, trailPct, atrStops, fee);
+        return runSignal(st, candles, slPct, tpPct, trailPct, atrStops, tp1Enabled, fee);
     }
 
-    /** signal-entry backtest (original engine) */
+    /** signal-entry backtest (cash/coins accounting, optional partial TP) */
     private static Result runSignal(Strategy st, Candle[] candles, double slPct, double tpPct,
-                                    double trailPct, boolean atrStops, double fee) {
+                                    double trailPct, boolean atrStops, boolean tp1Enabled, double fee) {
         Result r = new Result();
         r.name = st.name();
         try {
@@ -89,48 +90,63 @@ public class Backtester {
                 r.ok = false;
                 return r;
             }
-            boolean in = false;
+            double cash = 1.0;
+            double coins = 0;
             double entry = 0;
-            double posSlPct = slPct, posTpPct = tpPct; // effective stops for the open position
-            double peakPrice = 0;   // highest price while in position (for trailing)
-            double equity = 1.0;
-            double peak = 1.0;
-            double maxDD = 0;
+            double invested = 0;
+            double posSlPct = slPct, posTpPct = tpPct;
+            boolean tp1Done = false;
+            double peakPrice = 0;
+            double peakEq = 1.0, maxDD = 0;
             int trades = 0, wins = 0;
 
             for (int i = start; i < candles.length; i++) {
                 double close = candles[i].c;
-                if (in) {
+                if (coins > 0) {
+                    // optional partial take-profit at half the TP distance
+                    if (tp1Enabled && !tp1Done) {
+                        double tp1Price = entry * (1.0 + posTpPct / 200.0);
+                        if (candles[i].h >= tp1Price) {
+                            double half = coins / 2.0;
+                            cash += half * tp1Price * (1.0 - fee);
+                            coins -= half;
+                            tp1Done = true;
+                        }
+                    }
                     double slPrice = entry * (1.0 - posSlPct / 100.0);
+                    // after TP1 the remainder is protected at breakeven
+                    if (tp1Done) slPrice = Math.max(slPrice, entry);
                     double tpPrice = entry * (1.0 + posTpPct / 100.0);
                     double trPrice = trailPriceFor(peakPrice, trailPct);
                     boolean slHit = candles[i].l <= slPrice;
                     boolean tpHit = candles[i].h >= tpPrice;
                     boolean trHit = !Double.isNaN(trPrice) && candles[i].l <= trPrice;
-                    double exit = close;
-                    if (slHit || trHit) {
-                        // pessimistic: if several stops could have fired, take the worst
-                        exit = Double.MAX_VALUE;
-                        if (slHit) exit = Math.min(exit, slPrice);
-                        if (trHit) exit = Math.min(exit, trPrice);
-                    } else if (tpHit) {
-                        exit = tpPrice;
-                    }
-                    int sig = st.signal(candles, i, ctx);
-                    if (slHit || trHit || tpHit || sig == Strategy.SELL) {
-                        equity *= (exit / entry) * (1.0 - fee);
-                        if (exit > entry) wins++;
+                    boolean sellSig = st.signal(candles, i, ctx) == Strategy.SELL;
+                    if (slHit || trHit || tpHit || sellSig) {
+                        double exit = close;
+                        if (slHit || trHit) {
+                            exit = Double.MAX_VALUE;
+                            if (slHit) exit = Math.min(exit, slPrice);
+                            if (trHit) exit = Math.min(exit, trPrice);
+                        } else if (tpHit) {
+                            exit = tpPrice;
+                        }
+                        cash += coins * exit * (1.0 - fee);
                         trades++;
-                        in = false;
+                        if (cash > invested) wins++;
+                        coins = 0;
+                        tp1Done = false;
                     } else {
-                        // still holding: raise the trailing peak with this bar's high
                         if (candles[i].h > peakPrice) peakPrice = candles[i].h;
                     }
                 } else {
                     if (st.signal(candles, i, ctx) == Strategy.BUY) {
-                        in = true;
                         entry = close;
+                        coins = cash * (1.0 - fee) / close;
+                        invested = cash;
+                        cash = 0;
                         peakPrice = close;
+                        tp1Done = false;
                         if (atrStops && !Double.isNaN(ctx.atr14[i])) {
                             double[] eff = atrStopsPct(ctx.atr14[i], close, slPct, tpPct);
                             posSlPct = eff[0];
@@ -139,18 +155,18 @@ public class Backtester {
                             posSlPct = slPct;
                             posTpPct = tpPct;
                         }
-                        equity *= (1.0 - fee);
                     }
                 }
-                double mark = in ? equity * (close / entry) : equity;
-                if (mark > peak) peak = mark;
-                double dd = (peak - mark) / peak * 100.0;
+                double equity = cash + coins * close;
+                if (equity > peakEq) peakEq = equity;
+                double dd = (peakEq - equity) / peakEq * 100.0;
                 if (dd > maxDD) maxDD = dd;
             }
 
+            double finalEq = cash + coins * candles[candles.length - 1].c;
             r.trades = trades;
-            r.wins = trades == 0 ? 0 : wins;
-            r.netPct = (equity - 1.0) * 100.0;
+            r.wins = wins;
+            r.netPct = (finalEq - 1.0) * 100.0;
             r.bhPct = (candles[candles.length - 1].c / candles[start].c - 1.0) * 100.0;
             r.maxDDPct = maxDD;
             r.ok = true;
@@ -159,6 +175,7 @@ public class Backtester {
         }
         return r;
     }
+
     /**
      * DCA backtest: buys a ladder every `interval` closed candles (spending half
      * of the remaining cash each time, capped by maxLadders), tracks the

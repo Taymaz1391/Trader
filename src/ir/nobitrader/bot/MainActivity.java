@@ -61,7 +61,9 @@ public class MainActivity extends Activity {
     private TextView stratDesc, amountHint, liveWarn, analysisView;
     private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit, tgTokenEdit, tgChatEdit;
     private Spinner symbolSpin, tfSpin, intervalSpin, stratSpin;
-    private Switch liveSwitch, trailSwitch, dcaSwitch, atrSwitch, riskSwitch;
+    private Switch liveSwitch, trailSwitch, dcaSwitch, atrSwitch, riskSwitch, tp1Switch;
+    private LinearLayout[] tabs = new LinearLayout[4];
+    private ScrollView[] pages = new ScrollView[4];
     private EditText riskEdit;
     private LinearLayout dcaBox;
     private Spinner dcaSpin, dcaMaxSpin;
@@ -211,17 +213,67 @@ public class MainActivity extends Activity {
         return v;
     }
 
-    private ScrollView buildUi() {
-        ScrollView scroll = new ScrollView(this);
-        scroll.setBackgroundColor(BG);
-        scroll.setFillViewport(true);
+    private View buildUi() {
+        // ---- outer shell: tab bar + 4 pages ----
+        LinearLayout base = new LinearLayout(this);
+        base.setOrientation(LinearLayout.VERTICAL);
+        base.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
+        base.setBackgroundColor(BG);
 
-        LinearLayout root = new LinearLayout(this);
-        root.setOrientation(LinearLayout.VERTICAL);
-        root.setLayoutDirection(View.LAYOUT_DIRECTION_RTL);
-        root.setPadding(dp(14), dp(16), dp(14), dp(24));
-        scroll.addView(root, new ViewGroup.LayoutParams(
+        LinearLayout tabbar = new LinearLayout(this);
+        tabbar.setOrientation(LinearLayout.HORIZONTAL);
+        tabbar.setBackgroundColor(0xFF0D1320);
+        tabbar.setPadding(dp(6), dp(6), dp(6), dp(6));
+        base.addView(tabbar, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        String[] tabTitles = {"🏠 داشبورد", "📊 نمودار", "📜 معاملات", "⚙️ تنظیمات"};
+        for (int i = 0; i < 4; i++) {
+            final int idx = i;
+            tabs[i] = new LinearLayout(this);
+            tabs[i].setOrientation(LinearLayout.VERTICAL);
+            tabs[i].setGravity(Gravity.CENTER);
+            tabs[i].setPadding(dp(4), dp(9), dp(4), dp(9));
+            TextView tt = text(tabTitles[i], 13f, TEXT2, i == 0);
+            tabs[i].addView(tt);
+            tabs[i].setOnClickListener(new View.OnClickListener() {
+                @Override
+                public void onClick(View v) {
+                    showTab(idx);
+                }
+            });
+            LinearLayout.LayoutParams tl = new LinearLayout.LayoutParams(0,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+            if (i > 0) tl.setMarginStart(dp(4));
+            tabs[i].setLayoutParams(tl);
+            tabbar.addView(tabs[i]);
+        }
+
+        LinearLayout pageHost = new LinearLayout(this);
+        pageHost.setOrientation(LinearLayout.VERTICAL);
+        base.addView(pageHost, new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        String[] pageNames = {"dash", "chart", "trades", "settings"};
+        LinearLayout[] pageRoots = new LinearLayout[4];
+        for (int i = 0; i < 4; i++) {
+            pages[i] = new ScrollView(this);
+            pages[i].setFillViewport(true);
+            pages[i].setVisibility(i == 0 ? View.VISIBLE : View.GONE);
+            pageRoots[i] = new LinearLayout(this);
+            pageRoots[i].setOrientation(LinearLayout.VERTICAL);
+            pageRoots[i].setPadding(dp(14), dp(12), dp(14), dp(24));
+            pages[i].addView(pageRoots[i], new ViewGroup.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+            LinearLayout.LayoutParams plp = new LinearLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT);
+            pageHost.addView(pages[i], plp);
+        }
+        LinearLayout root = pageRoots[0];      // dashboard (default target of existing code)
+        LinearLayout linDash = pageRoots[0];
+        LinearLayout linChart = pageRoots[1];
+        LinearLayout linTrades = pageRoots[2];
+        LinearLayout linSettings = pageRoots[3];
+        final LinearLayout[] P = pageRoots;
 
         // ---------- header (gradient hero) ----------
         LinearLayout hero = new LinearLayout(this);
@@ -258,7 +310,7 @@ public class MainActivity extends Activity {
         statusPill.setBackground(pill);
         head.addView(statusPill);
         hero.addView(head);
-        root.addView(hero);
+        linDash.addView(hero);
 
         // ---------- market card ----------
         LinearLayout mc = card();
@@ -288,7 +340,7 @@ public class MainActivity extends Activity {
         pcol.addView(changeView);
         prow.addView(pcol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         mc.addView(prow);
-        root.addView(mc);
+        linDash.addView(mc);
 
         // ---------- chart card ----------
         LinearLayout chc = card();
@@ -301,7 +353,7 @@ public class MainActivity extends Activity {
         chc.addView(chartView);
         analysisView = text("خط طلایی: EMA21 — میله‌های پایین: حجم معاملات — خط‌چین: قیمت ورود شما", 12f, TEXT2, false);
         chc.addView(margin(analysisView, 6));
-        root.addView(chc);
+        linChart.addView(chc);
 
         // ---------- control card ----------
         LinearLayout cc = card();
@@ -310,7 +362,7 @@ public class MainActivity extends Activity {
         startBtn.setPadding(dp(12), dp(14), dp(12), dp(14));
         cc.addView(startBtn, new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
-        root.addView(cc);
+        linDash.addView(cc);
 
         // ---------- position card ----------
         LinearLayout pc = card();
@@ -344,7 +396,7 @@ public class MainActivity extends Activity {
         srl.topMargin = dp(10);
         sellResetRow.setLayoutParams(srl);
         pc.addView(sellResetRow);
-        root.addView(pc);
+        linDash.addView(pc);
 
         // ---------- settings card ----------
         LinearLayout sc = card();
@@ -408,6 +460,17 @@ public class MainActivity extends Activity {
         tpLp.setMarginStart(dp(16));
         slRow.addView(tpCol, tpLp);
         sc.addView(slRow);
+
+        // partial take-profit
+        LinearLayout tp1Head = row();
+        LinearLayout tp1Col = new LinearLayout(this);
+        tp1Col.setOrientation(LinearLayout.VERTICAL);
+        tp1Col.addView(text("برداشت سود پله‌ای (TP1)", 14f, TEXT, true));
+        tp1Col.addView(text("با رسیدن به نصف حد سود، نصف پوزیشن با سود بسته می‌شود و برای بقیه، حد ضرر به نقطه ورود (بی‌ضرر) منتقل می‌شود", 11f, TEXT2, false));
+        tp1Head.addView(tp1Col, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        tp1Switch = new Switch(this);
+        tp1Head.addView(tp1Switch);
+        sc.addView(margin(tp1Head, 12));
 
         // risk-based dynamic sizing
         LinearLayout riskHead = row();
@@ -518,7 +581,7 @@ public class MainActivity extends Activity {
         sc.addView(tgTestBtn);
         TextView tgHint = text("با فعال بودن VPN، پیام خرید/فروش و روشن/خاموش شدن ربات برایتان ارسال می‌شود.", 11f, TEXT2, false);
         sc.addView(margin(tgHint, 6));
-        root.addView(sc);
+        linSettings.addView(sc);
 
         // ---------- account card ----------
         LinearLayout ac = card();
@@ -543,7 +606,7 @@ public class MainActivity extends Activity {
         walletView = text("برای معامله واقعی، توکن را وارد و بررسی کنید. توکن فقط روی همین گوشی ذخیره می‌شود.", 12f, TEXT2, false);
         walletView.setLineSpacing(dp(2), 1f);
         ac.addView(margin(walletView, 8));
-        root.addView(ac);
+        linSettings.addView(ac);
 
         // ---------- backtest card ----------
         LinearLayout bc = card();
@@ -565,7 +628,7 @@ public class MainActivity extends Activity {
         backtestView = text("هر چهار استراتژی روی ۵۰۰ کندل اخیر بازار انتخابی شبیه‌سازی می‌شوند و نتیجه مقایسه داده می‌شود.", 12f, TEXT2, false);
         backtestView.setLineSpacing(dp(3), 1f);
         bc.addView(margin(backtestView, 8));
-        root.addView(bc);
+        linChart.addView(bc);
 
         // ---------- log card ----------
         LinearLayout lc = card();
@@ -584,19 +647,34 @@ public class MainActivity extends Activity {
         csvLp.topMargin = dp(10);
         csvBtn.setLayoutParams(csvLp);
         lc.addView(csvBtn);
-        root.addView(lc);
+        linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.4 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.5 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         fLp.topMargin = dp(14);
         foot.setLayoutParams(fLp);
-        root.addView(foot);
+        linSettings.addView(foot);
 
         hookListeners();
-        return scroll;
+        showTab(0);
+        return base;
+    }
+
+    private void showTab(int idx) {
+        for (int i = 0; i < 4; i++) {
+            pages[i].setVisibility(i == idx ? View.VISIBLE : View.GONE);
+            boolean on = i == idx;
+            TextView t = (TextView) tabs[i].getChildAt(0);
+            t.setTextColor(on ? GOLD : TEXT2);
+            t.setTypeface(Typeface.create(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL));
+            android.graphics.drawable.GradientDrawable tb = new android.graphics.drawable.GradientDrawable();
+            tb.setColor(on ? 0xFF1A2438 : 0x00000000);
+            tb.setCornerRadius(dp(10));
+            tabs[i].setBackground(tb);
+        }
     }
 
     private LinearLayout.LayoutParams spinnerLp() {
@@ -951,6 +1029,7 @@ public class MainActivity extends Activity {
             }
         }
         prefs.setTrailingPct(trail);
+        prefs.setTp1Enabled(tp1Switch.isChecked());
         prefs.setRiskSizing(riskSwitch.isChecked());
         prefs.setRiskPct(risk);
         prefs.setAtrStops(atrSwitch.isChecked());
@@ -981,6 +1060,7 @@ public class MainActivity extends Activity {
         trailEdit.setVisibility(c.trailingPct > 0 ? View.VISIBLE : View.GONE);
         tgTokenEdit.setText(c.tgToken);
         tgChatEdit.setText(c.tgChat);
+        tp1Switch.setChecked(c.tp1Enabled);
         riskSwitch.setChecked(c.riskSizing);
         riskEdit.setText(c.riskSizing ? fmtNum(c.riskPct) : "");
         riskEdit.setVisibility(c.riskSizing ? View.VISIBLE : View.GONE);
@@ -1090,7 +1170,8 @@ public class MainActivity extends Activity {
                     for (int s = 0; s < Strategy.ALL.length; s++) {
                         Backtester.Result r = Backtester.run(Strategy.ALL[s], cs, cfg.slPct, cfg.tpPct,
                                 cfg.trailingPct, cfg.dca ? cfg.dcaIntervalCandles : 0,
-                                cfg.dca ? cfg.dcaMaxLadders : 0, cfg.atrStops, Backtester.DEFAULT_FEE);
+                                cfg.dca ? cfg.dcaMaxLadders : 0, cfg.atrStops, cfg.tp1Enabled,
+                                Backtester.DEFAULT_FEE);
                         if (!r.ok) continue;
                         if (best == null || r.netPct > best.netPct) best = r;
                         sb.append("• ").append(r.name).append('\n');
@@ -1138,30 +1219,27 @@ public class MainActivity extends Activity {
                     Candle[] cs = api.udfHistory(Market.of(cfg.symbol).symbol, cfg.resolution, 500);
                     double[] sls = {2, 3, 4, 5, 6, 8};
                     double[] ratios = {1.5, 2.0, 2.5, 3.0};
+                    // walk-forward: optimize on the first 60% of candles,
+                    // then validate the winner on the unseen last 40%
+                    int cut = (int) (cs.length * 0.6);
+                    Candle[] train = java.util.Arrays.copyOfRange(cs, 0, cut);
+                    Candle[] test = java.util.Arrays.copyOfRange(cs, cut, cs.length);
                     double best = Double.NEGATIVE_INFINITY;
                     StringBuilder top = new StringBuilder();
                     double[] bestNet = {0};
-                    for (double sl : sls) {
-                        for (double rt : ratios) {
-                            double tp = sl * rt;
-                            Backtester.Result r = Backtester.run(strat, cs, sl, tp,
-                                    0, 0, 0, false, Backtester.DEFAULT_FEE);
-                            if (!r.ok) continue;
-                            if (r.netPct > best) {
-                                best = r.netPct;
-                                bestSl = sl;
-                                bestTp = tp;
-                                bestNet[0] = r.netPct;
-                            }
-                        }
-                    }
-                    // rebuild top-3 list
                     java.util.ArrayList<double[]> results = new java.util.ArrayList<double[]>();
                     for (double sl : sls) {
                         for (double rt : ratios) {
-                            Backtester.Result r = Backtester.run(strat, cs, sl, sl * rt,
-                                    0, 0, 0, false, Backtester.DEFAULT_FEE);
-                            if (r.ok) results.add(new double[]{r.netPct, sl, sl * rt, r.trades});
+                            Backtester.Result r = Backtester.run(strat, train, sl, sl * rt,
+                                    0, 0, 0, false, false, Backtester.DEFAULT_FEE);
+                            if (!r.ok) continue;
+                            results.add(new double[]{r.netPct, sl, sl * rt, r.trades});
+                            if (r.netPct > best) {
+                                best = r.netPct;
+                                bestSl = sl;
+                                bestTp = sl * rt;
+                                bestNet[0] = r.netPct;
+                            }
                         }
                     }
                     java.util.Collections.sort(results, new java.util.Comparator<double[]>() {
@@ -1174,8 +1252,21 @@ public class MainActivity extends Activity {
                         top.append(String.format(Locale.US, "   %.0f%% SL / %.1f%% TP → %+.1f%% (%d معامله)%n",
                                 x[1], x[2], x[0], (int) x[3]));
                     }
+                    // validate on the out-of-sample window
+                    Backtester.Result vf = Backtester.run(strat, test, bestSl, bestTp,
+                            0, 0, 0, false, false, Backtester.DEFAULT_FEE);
+                    Backtester.Result full = Backtester.run(strat, cs, bestSl, bestTp,
+                            0, 0, 0, false, false, Backtester.DEFAULT_FEE);
+                    String wf = "\nاعتبارسنجی روی ۴۰٪ داده دیده‌نشده: "
+                            + (vf.ok ? Fmt.pct(vf.netPct) : "—")
+                            + " | بازده کل پنجره: " + (full.ok ? Fmt.pct(full.netPct) : "—");
+                    if (vf.ok && vf.netPct < 0 && bestNet[0] > 0) {
+                        wf += "\n⚠️ افت در بازه آزمون — احتمال بیش‌برازش؛ با احتیاط استفاده کنید.";
+                    }
                     out = "🎯 بهترین ترکیب: حد ضرر " + fmtNum(bestSl) + "٪ / حد سود " + fmtNum(bestTp)
-                            + "٪ → بازده " + Fmt.pct(bestNet[0]) + "\n\nبرترین‌ها:\n" + top.toString().trim()
+                            + "٪ → بازده آموزش " + Fmt.pct(bestNet[0])
+                            + "\n\nبرترین‌ها (داده آموزش):\n" + top.toString().trim()
+                            + wf
                             + "\n\n✅ مقادیر بهینه در تنظیمات اعمال شد.";
                     final double fSl = bestSl, fTp = bestTp;
                     postUi(new Runnable() {
@@ -1256,10 +1347,24 @@ public class MainActivity extends Activity {
                     int len = n - from;
                     final Candle[] sub = new Candle[len];
                     final double[] ema = new double[len];
+                    final double[] rsiArr = new double[len];
                     for (int i = from; i < n; i++) {
                         sub[i - from] = f[i];
                         ema[i - from] = ctx.ema21[i];
+                        rsiArr[i - from] = ctx.rsi14[i];
                     }
+                    // map trade timestamps to their candle open time for markers
+                    long tfSec = Market.tfSeconds(cfg.resolution);
+                    java.util.ArrayList<double[]> ms = Store.markers();
+                    java.util.ArrayList<double[]> mks = new java.util.ArrayList<double[]>();
+                    long firstT = f[0].t;
+                    for (double[] mk : ms) {
+                        long candleT = ((long) (mk[0] / tfSec)) * tfSec;
+                        if (candleT >= firstT) {
+                            mks.add(new double[]{candleT, mk[1], mk[2]});
+                        }
+                    }
+                    final double[][] markers = mks.toArray(new double[0][]);
                     final double lastP = f[n - 1].c;
                     boolean upTrend = ctx.ema9[n - 1] > ctx.ema21[n - 1];
                     int score = new Strategy.ComboScore().score(f, n - 1, ctx);
@@ -1279,7 +1384,7 @@ public class MainActivity extends Activity {
                     postUi(new Runnable() {
                         @Override
                         public void run() {
-                            chartView.setData(sub, ema, entry, label);
+                            chartView.setData(sub, ema, rsiArr, entry, label, markers);
                             analysisView.setText(analysis);
                         }
                     });

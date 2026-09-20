@@ -30,6 +30,7 @@ public class Prefs {
         public double tpPct = 8;
         public double trailingPct = 0;      // trailing stop, 0 = off
         public boolean atrStops = false;    // ATR-based adaptive SL/TP
+        public boolean tp1Enabled = false;  // partial take-profit at half the TP
         public boolean riskSizing = false;  // dynamic position size by risk
         public double riskPct = 1.0;        // % of equity risked per trade
         public boolean dca = false;         // dollar-cost averaging mode
@@ -52,6 +53,7 @@ public class Prefs {
         c.tpPct = (double) sp.getFloat("tpPct", 8f);
         c.trailingPct = (double) sp.getFloat("trailingPct", 0f);
         c.atrStops = sp.getBoolean("atrStops", false);
+        c.tp1Enabled = sp.getBoolean("tp1Enabled", false);
         c.riskSizing = sp.getBoolean("riskSizing", false);
         c.riskPct = (double) sp.getFloat("riskPct", 1f);
         c.dca = sp.getBoolean("dca", false);
@@ -75,6 +77,7 @@ public class Prefs {
                 .putFloat("tpPct", (float) c.tpPct)
                 .putFloat("trailingPct", (float) c.trailingPct)
                 .putBoolean("atrStops", c.atrStops)
+                .putBoolean("tp1Enabled", c.tp1Enabled)
                 .putBoolean("riskSizing", c.riskSizing)
                 .putFloat("riskPct", (float) c.riskPct)
                 .putBoolean("dca", c.dca)
@@ -97,6 +100,7 @@ public class Prefs {
     public void setTpPct(double v) { sp.edit().putFloat("tpPct", (float) v).apply(); }
     public void setTrailingPct(double v) { sp.edit().putFloat("trailingPct", (float) v).apply(); }
     public void setAtrStops(boolean v) { sp.edit().putBoolean("atrStops", v).apply(); }
+    public void setTp1Enabled(boolean v) { sp.edit().putBoolean("tp1Enabled", v).apply(); }
     public void setRiskSizing(boolean v) { sp.edit().putBoolean("riskSizing", v).apply(); }
     public void setRiskPct(double v) { sp.edit().putFloat("riskPct", (float) v).apply(); }
     public void setDca(boolean v) { sp.edit().putBoolean("dca", v).apply(); }
@@ -133,6 +137,14 @@ public class Prefs {
     public double posPeak() { return parse(sp.getString("posPeak", "0")); }
     public void setPosPeak(double v) { sp.edit().putString("posPeak", Double.toString(v)).apply(); }
 
+    /** partial take-profit bookkeeping */
+    public boolean posTp1Taken() { return sp.getBoolean("posTp1Taken", false); }
+    public void setPosTp1Taken(boolean v) { sp.edit().putBoolean("posTp1Taken", v).apply(); }
+
+    /** consecutive losing trades (entry cooldown grows after a losing streak) */
+    public int consecLosses() { return sp.getInt("consecLosses", 0); }
+    public void setConsecLosses(int v) { sp.edit().putInt("consecLosses", v).apply(); }
+
     /** DCA ladder bookkeeping for the open position */
     public int posLadders() { return sp.getInt("posLadders", 0); }
     public void setPosLadders(int v) { sp.edit().putInt("posLadders", v).apply(); }
@@ -161,6 +173,8 @@ public class Prefs {
         setPosPeak(0);
         setPosLadders(0);
         setPosLastLadder(0);
+        setPosTp1Taken(false);
+        setConsecLosses(0);
         setRealizedPnl(0);
         setTradeStats(0, 0);
         setLastTradeTime(0);

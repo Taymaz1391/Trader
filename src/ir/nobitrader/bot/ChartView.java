@@ -23,6 +23,8 @@ public class ChartView extends View {
 
     private Candle[] data = new Candle[0];
     private double[] ema = new double[0];
+    private double[] rsi = new double[0];
+    private double[][] markers = new double[0][]; // {candleTimeSec, price, side(+1/-1)}
     private double entry;    // 0 = no entry line
     private double last;
     private String lastLabel = "";
@@ -48,6 +50,10 @@ public class ChartView extends View {
     private final Paint txtInvP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint chipP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint lblBgP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint rsiP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint rsiBandP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint rsiZoneP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint markP = new Paint(Paint.ANTI_ALIAS_FLAG);
 
     private final ScaleGestureDetector scale;
     private final GestureDetector gest;
@@ -88,6 +94,17 @@ public class ChartView extends View {
         chipP.setStyle(Paint.Style.FILL);
         lblBgP.setStyle(Paint.Style.FILL);
         lblBgP.setColor(0xE6101624);
+        rsiP.setStyle(Paint.Style.STROKE);
+        rsiP.setStrokeWidth(1.5f * d);
+        rsiP.setColor(0xFF9B6BFF);
+        rsiBandP.setStyle(Paint.Style.STROKE);
+        rsiBandP.setStrokeWidth(1f);
+        rsiBandP.setColor(0x44FFFFFF);
+        rsiBandP.setPathEffect(new DashPathEffect(new float[]{5f, 5f}, 0));
+        rsiZoneP.setStyle(Paint.Style.FILL);
+        rsiZoneP.setColor(0x149B6BFF);
+        markP.setStyle(Paint.Style.FILL);
+        markP.setAntiAlias(true);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
         scale = new ScaleGestureDetector(c, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
@@ -133,10 +150,13 @@ public class ChartView extends View {
         return getResources().getDisplayMetrics().density;
     }
 
-    /** full data refresh; ema must align with data, label is a pre-formatted price string */
-    public void setData(Candle[] candles, double[] emaArr, double entryPrice, String label) {
+    /** full data refresh; ema/rsi must align with data; markers = {timeSec, price, side} */
+    public void setData(Candle[] candles, double[] emaArr, double[] rsiArr,
+                        double entryPrice, String label, double[][] tradeMarkers) {
         data = candles == null ? new Candle[0] : candles;
         ema = emaArr == null ? new double[0] : emaArr;
+        rsi = rsiArr == null ? new double[0] : rsiArr;
+        markers = tradeMarkers == null ? new double[0][] : tradeMarkers;
         entry = entryPrice;
         last = data.length > 0 ? data[data.length - 1].c : 0;
         lastLabel = label == null ? "" : label;
@@ -160,12 +180,13 @@ public class ChartView extends View {
     @Override
     protected void onMeasure(int widthSpec, int heightSpec) {
         setMeasuredDimension(MeasureSpec.getSize(widthSpec),
-                Math.round(250 * d()));
+                Math.round(305 * d()));
     }
 
     @Override
     protected void onDraw(Canvas c) {
         super.onDraw(c);
+        float d = d();
         if (data.length < 2) {
             txtP.setTextAlign(Paint.Align.CENTER);
             c.drawText("در حال دریافت نمودار…", getWidth() / 2f, getHeight() / 2f, txtP);
@@ -184,8 +205,9 @@ public class ChartView extends View {
         float padB = 6 * d();
 
         float totalH = getHeight() - padT - padB;
-        float volH = totalH * 0.22f;
-        float priceH = totalH - volH - 6 * d();
+        float volH = totalH * 0.16f;
+        float rsiH = totalH * 0.24f;
+        float priceH = totalH - volH - rsiH - 12 * d();
         float w = getWidth() - padL - padR;
 
         double min = Double.MAX_VALUE, max = -Double.MAX_VALUE;
@@ -226,7 +248,41 @@ public class ChartView extends View {
             txtP.setTextAlign(Paint.Align.LEFT);
         }
 
-        float volBase = padT + priceH + 6 * d() + volH;
+        // ---- RSI panel ----
+        float rsiT = padT + priceH + 8 * d();
+        float rsiB = rsiT + rsiH;
+        float y70 = rsiT + rsiH * 0.30f;
+        float y50 = rsiT + rsiH * 0.50f;
+        float y30 = rsiT + rsiH * 0.70f;
+        c.drawLine(padL, y70, padL + w, y70, rsiBandP);
+        c.drawLine(padL, y30, padL + w, y30, rsiBandP);
+        c.drawRect(padL, rsiT, padL + w, y70, rsiZoneP);
+        c.drawRect(padL, y30, padL + w, rsiB, rsiZoneP);
+        txtP.setTextAlign(android.graphics.Paint.Align.RIGHT);
+        c.drawText("70", padL - 5 * d(), y70 + 3 * d(), txtP);
+        c.drawText("30", padL - 5 * d(), y30 + 3 * d(), txtP);
+        String rsiLbl = "RSI";
+        c.drawText(rsiLbl, padL - 5 * d(), y50 + 3 * d(), txtP);
+        txtP.setTextAlign(Paint.Align.LEFT);
+        if (rsi.length == data.length) {
+            Path rp = new Path();
+            boolean rs = false;
+            for (int i = start; i < end; i++) {
+                if (Double.isNaN(rsi[i])) continue;
+                float x = padL + step * (i - start + 0.5f);
+                float y = rsiT + (float) ((100.0 - rsi[i]) / 100.0) * rsiH;
+                if (!rs) {
+                    rp.moveTo(x, y);
+                    rs = true;
+                } else {
+                    rp.lineTo(x, y);
+                }
+            }
+            if (rs) c.drawPath(rp, rsiP);
+        }
+
+        // ---- volume baseline ----
+        float volBase = rsiB + 6 * d() + volH;
         c.drawLine(padL, volBase, padL + w, volBase, gridP);
 
         for (int i = start; i < end; i++) {
@@ -264,6 +320,39 @@ public class ChartView extends View {
         if (started) {
             c.drawPath(ep, emaGlow);
             c.drawPath(ep, emaP);
+        }
+
+        // trade markers: buy triangle under the candle, sell triangle above it
+        for (double[] mk : markers) {
+            if (mk.length < 3) continue;
+            long mt = (long) mk[0];
+            double mp = mk[1];
+            boolean buy = mk[2] > 0;
+            int idx = -1;
+            for (int i = start; i < end; i++) {
+                if (data[i].t == mt) {
+                    idx = i;
+                    break;
+                }
+            }
+            if (idx < 0) continue;
+            float cx = x0 + step * (idx - start + 0.5f);
+            float ty = padT + (float) ((max - mp) / span) * priceH;
+            markP.setColor(buy ? GREEN : RED);
+            Path tp = new Path();
+            if (buy) {
+                float y = ty + 14 * d();
+                tp.moveTo(cx, y - 6 * d());
+                tp.lineTo(cx - 4.5f * d, y);
+                tp.lineTo(cx + 4.5f * d, y);
+            } else {
+                float y = ty - 14 * d();
+                tp.moveTo(cx, y + 6 * d());
+                tp.lineTo(cx - 4.5f * d, y);
+                tp.lineTo(cx + 4.5f * d, y);
+            }
+            tp.close();
+            c.drawPath(tp, markP);
         }
 
         if (entry > 0) {
