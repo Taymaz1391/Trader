@@ -36,5 +36,8 @@ jobs:
             echo "log unchanged"
           else
             git commit -m "chore: live-test log [skip ci]"
-            git push
+            for i in 1 2 3; do
+              git pull --rebase origin arena/01a0bd9b-trader && git push && break
+              echo "retry $i…"; sleep 5
+            done
           fi
