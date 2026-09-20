@@ -56,7 +56,7 @@ public class MainActivity extends Activity {
     private Prefs prefs;
 
     // views
-    private TextView statusPill, priceView, changeView, symbolTitle;
+    private TextView statusPill, priceView, changeView, symbolTitle, livePill;
     private TextView walletView, posView, statsView, logView, backtestView;
     private TextView stratDesc, amountHint, liveWarn, analysisView;
     private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit, tgTokenEdit, tgChatEdit;
@@ -95,6 +95,8 @@ public class MainActivity extends Activity {
     private int shownVersion = -1;
     private int tick = 0;
     private volatile boolean priceBusy = false;
+    private volatile long lastPriceOkAt = 0;   // last successful price fetch
+    private Runnable keySaver;                 // debounced API-key auto-save
     private volatile boolean chartBusy = false;
     private volatile boolean btBusy = false;
     private volatile boolean optBusy = false;
@@ -127,6 +129,7 @@ public class MainActivity extends Activity {
         resumed = true;
         refreshUi();
         fetchChart();
+        fetchPrice();
         ui.postDelayed(poll, 2500);
     }
 
@@ -135,6 +138,8 @@ public class MainActivity extends Activity {
         super.onPause();
         resumed = false;
         ui.removeCallbacks(poll);
+        if (keySaver != null) ui.removeCallbacks(keySaver);
+        if (tokenEdit != null) saveKeys(true);
     }
 
     private final Runnable poll = new Runnable() {
@@ -397,8 +402,10 @@ public class MainActivity extends Activity {
         pcol.setOrientation(LinearLayout.VERTICAL);
         priceView = text("—", 26f, TEXT, true);
         changeView = text("", 14f, TEXT2, true);
+        livePill = text("در حال اتصال به نوبیتکس…", 11f, TEXT2, true);
         pcol.addView(priceView);
         pcol.addView(changeView);
+        pcol.addView(livePill);
         prow.addView(pcol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
         mc.addView(prow);
         linDash.addView(mc);
@@ -529,7 +536,7 @@ public class MainActivity extends Activity {
         intervalSpin = new Spinner(this);
         ArrayAdapter<String> ivAd = new ArrayAdapter<String>(this,
                 android.R.layout.simple_spinner_item,
-                new String[]{"۱ دقیقه", "۲ دقیقه", "۵ دقیقه", "۱۰ دقیقه", "۱۵ دقیقه"});
+                new String[]{"۳۰ ثانیه", "۱ دقیقه", "۲ دقیقه", "۵ دقیقه", "۱۰ دقیقه", "۱۵ دقیقه"});
         ivAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
         intervalSpin.setAdapter(ivAd);
         intervalSpin.setLayoutParams(spinnerLp());
@@ -772,6 +779,31 @@ public class MainActivity extends Activity {
             }
         });
 
+        // ---- auto-save the API key/secret while typing (debounced) ----
+        keySaver = new Runnable() {
+            @Override
+            public void run() {
+                saveKeys(false);
+            }
+        };
+        android.text.TextWatcher keyWatcher = new android.text.TextWatcher() {
+            @Override
+            public void beforeTextChanged(CharSequence cs, int a, int b2, int c2) {
+            }
+
+            @Override
+            public void onTextChanged(CharSequence cs, int a, int b2, int c2) {
+            }
+
+            @Override
+            public void afterTextChanged(android.text.Editable e) {
+                ui.removeCallbacks(keySaver);
+                ui.postDelayed(keySaver, 900);
+            }
+        };
+        tokenEdit.addTextChangedListener(keyWatcher);
+        secretEdit.addTextChangedListener(keyWatcher);
+
         // ---------- backtest card ----------
         LinearLayout bc = card();
         bc.addView(text("🧪 بک‌تست استراتژی‌ها", 15f, GOLD, true));
@@ -814,7 +846,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.8 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.9 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -997,7 +1029,7 @@ public class MainActivity extends Activity {
         intervalSpin.setOnItemSelectedListener(new android.widget.AdapterView.OnItemSelectedListener() {
             @Override
             public void onItemSelected(android.widget.AdapterView<?> parent, View view, int position, long id) {
-                prefs.setIntervalSec(new int[]{60, 120, 300, 600, 900}[position]);
+                prefs.setIntervalSec(new int[]{30, 60, 120, 300, 600, 900}[position]);
             }
 
             @Override
@@ -1317,7 +1349,7 @@ public class MainActivity extends Activity {
         for (int i = 0; i < tfs.length; i++) {
             if (tfs[i].equals(c.resolution)) tfSpin.setSelection(i, false);
         }
-        int[] ivs = {60, 120, 300, 600, 900};
+        int[] ivs = {30, 60, 120, 300, 600, 900};
         for (int i = 0; i < ivs.length; i++) {
             if (ivs[i] == c.intervalSec) intervalSpin.setSelection(i, false);
         }
@@ -1542,6 +1574,8 @@ public class MainActivity extends Activity {
                     NobitexApi api = new NobitexApi(null);
                     double p = api.lastPrice(m.symbol);
                     engine.lastPrice = p;
+                    lastPriceOkAt = System.currentTimeMillis();
+                    prefs.setLastPrice(p, m.symbol);
                     try {
                         NobitexApi.DayStats st = api.stats(m.src, m.dst);
                         engine.dayChangePct = st.changePct();
@@ -1679,6 +1713,25 @@ public class MainActivity extends Activity {
         }
 
         double p = engine.lastPrice;
+        boolean fromCache = false;
+        if (p <= 0 && prefs.lastPriceSym().equals(cfg.symbol)) {
+            p = prefs.lastPrice();
+            fromCache = p > 0;
+        }
+        long nowMs = System.currentTimeMillis();
+        if (lastPriceOkAt > 0 && nowMs - lastPriceOkAt < 35000L) {
+            livePill.setText("● قیمت زنده از نوبیتکس");
+            livePill.setTextColor(GREEN);
+        } else if (lastPriceOkAt > 0) {
+            livePill.setText("● اتصال قطع — در حال تلاش مجدد…");
+            livePill.setTextColor(RED);
+        } else if (fromCache) {
+            livePill.setText("آخرین قیمت ذخیره‌شده — در حال اتصال…");
+            livePill.setTextColor(TEXT2);
+        } else {
+            livePill.setText("در حال اتصال به نوبیتکس…");
+            livePill.setTextColor(TEXT2);
+        }
         if (p > 0) {
             if (lastShownPrice > 0 && p != lastShownPrice) {
                 priceView.setTextColor(p > lastShownPrice ? GREEN : RED);
@@ -1954,6 +2007,21 @@ public class MainActivity extends Activity {
         chartView.endReplay();
         resetPlayBtn();
         fetchChart();
+    }
+
+    /** persist the API key + secret immediately (never lose credentials) */
+    private void saveKeys(boolean silent) {
+        try {
+            String k = tokenEdit.getText().toString().trim();
+            String sc = secretEdit.getText().toString().trim();
+            Prefs.Cfg c = prefs.cfg();
+            if (!k.equals(c.token) || !sc.equals(c.apiSecret)) {
+                prefs.setToken(k);
+                prefs.setApiSecret(sc);
+                if (!silent) toast("🔑 کلید API ذخیره شد");
+            }
+        } catch (Throwable ignored) {
+        }
     }
 
     /** run the API connection test (both classic and new API-key auth) */

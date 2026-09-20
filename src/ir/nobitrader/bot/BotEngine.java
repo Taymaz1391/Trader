@@ -89,8 +89,10 @@ public class BotEngine {
         }).start();
     }
 
+    private int errStreak = 0;
+
     private void loop() {
-        int errStreak = 0;
+        errStreak = 0;
         while (running) {
             int waitSec = 300;
             try {
@@ -102,24 +104,24 @@ public class BotEngine {
                 Thread.currentThread().interrupt();
                 return;
             } catch (Throwable t) {
-                errStreak++;
-                lastError = String.valueOf(t.getMessage() != null ? t.getMessage() : t);
-                Store.log("⚠️ خطا در چرخه بررسی (" + errStreak + "): " + lastError);
-                if (errStreak >= 5) {
-                    Store.log("⛔ توقف خودکار ربات پس از ۵ خطای متوالی");
-                    sendTg(prefs.cfg(), "⛔ ربات پس از ۵ خطای متوالی متوقف شد: " + lastError);
-                    BotService.notifyTrade(ctx, "⛔ توقف خودکار ربات", "۵ خطای متوالی: " + lastError);
-                    final Context c = ctx;
-                    new Thread(new Runnable() {
-                        public void run() {
-                            try {
-                                Thread.sleep(800);
-                                BotService.stop(c);
-                            } catch (Exception ignored) {
-                            }
-                        }
-                    }).start();
-                    return;
+                // یک تلاش مجدد کوتاه برای خطاهای گذرای شبکه (قطعی موقت دیتا/وی‌پی‌ان)
+                if (t instanceof java.io.IOException && running) {
+                    try {
+                        Thread.sleep(3000L);
+                        Prefs.Cfg cfg = prefs.cfg();
+                        waitSec = cfg.intervalSec;
+                        cycle(cfg);
+                        errStreak = 0;
+                        Store.log("↻ اتصال پس از قطعی موقت برقرار شد");
+                        continue;
+                    } catch (InterruptedException ie) {
+                        Thread.currentThread().interrupt();
+                        return;
+                    } catch (Throwable t2) {
+                        handleCycleError(t2);
+                    }
+                } else {
+                    handleCycleError(t);
                 }
             }
             try {
@@ -127,6 +129,28 @@ public class BotEngine {
             } catch (InterruptedException e) {
                 return;
             }
+        }
+    }
+
+    /** count a failed cycle; stop the bot after 5 in a row */
+    private void handleCycleError(Throwable t) {
+        errStreak++;
+        lastError = String.valueOf(t.getMessage() != null ? t.getMessage() : t);
+        Store.log("⚠️ خطا در چرخه بررسی (" + errStreak + "): " + lastError);
+        if (errStreak >= 5) {
+            Store.log("⛔ توقف خودکار ربات پس از ۵ خطای متوالی");
+            sendTg(prefs.cfg(), "⛔ ربات پس از ۵ خطای متوالی متوقف شد: " + lastError);
+            BotService.notifyTrade(ctx, "⛔ توقف خودکار ربات", "۵ خطای متوالی: " + lastError);
+            final Context c = ctx;
+            new Thread(new Runnable() {
+                public void run() {
+                    try {
+                        Thread.sleep(800);
+                        BotService.stop(c);
+                    } catch (Exception ignored) {
+                    }
+                }
+            }).start();
         }
     }
 

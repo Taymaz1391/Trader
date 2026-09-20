@@ -101,6 +101,15 @@ public class Prefs {
     // convenience single-field setters used by the UI
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }
     public void setApiSecret(String v) { sp.edit().putString("apiSecret", v == null ? "" : v.trim()).apply(); }
+
+    /** last successfully fetched price (cached so the UI can show it instantly on open) */
+    public void setLastPrice(double v, String sym) {
+        sp.edit().putFloat("lastPrice", (float) v).putString("lastPriceSym", sym == null ? "" : sym).apply();
+    }
+
+    public double lastPrice() { return (double) sp.getFloat("lastPrice", 0f); }
+
+    public String lastPriceSym() { return sp.getString("lastPriceSym", ""); }
     public void setSymbol(String v) { sp.edit().putString("symbol", v).apply(); }
     public void setResolution(String v) { sp.edit().putString("resolution", v).apply(); }
     public void setIntervalSec(int v) { sp.edit().putInt("intervalSec", v).apply(); }
