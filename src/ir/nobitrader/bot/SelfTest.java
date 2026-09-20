@@ -211,7 +211,7 @@ public class SelfTest {
                 + String.format("%.2f", fd.netPct) + "% vs " + String.format("%.2f", fd.bhPct) + "%)");
 
         System.out.println("== donchian breakout ==");
-        check(Strategy.ALL.length == 5, "five strategies registered");
+        check(Strategy.ALL.length == 6, "six strategies registered (incl. ensemble)");
         Strategy dk = null;
         for (Strategy s0 : Strategy.ALL) {
             if (s0 instanceof Strategy.DonchianBreakout) dk = s0;
@@ -244,6 +244,35 @@ public class SelfTest {
         check(sellFound, "donchian SELL on downside breakdown");
         Backtester.Result dkr = Backtester.run(dk, dkc, 5, 10, 0, 0, 0, false, false, Backtester.DEFAULT_FEE);
         check(dkr.ok, "donchian backtest completes");
+
+        System.out.println("== ensemble vote ==");
+        Strategy en = null;
+        for (Strategy s0 : Strategy.ALL) {
+            if (s0 instanceof Strategy.EnsembleVote) en = s0;
+        }
+        check(en != null, "ensemble present in ALL");
+        // property check: ensemble must equal the majority-vote rule on EVERY bar
+        boolean consistent = true;
+        int anyBuy = 0;
+        for (int i = Strategy.WARMUP; i < 200; i++) {
+            int b = 0, sl = 0;
+            for (Strategy s0 : Strategy.BASE) {
+                int vv = s0.signal(dkc, i, dctx);
+                if (vv == Strategy.BUY) b++;
+                else if (vv == Strategy.SELL) sl++;
+            }
+            if (b >= 3) anyBuy++;
+            int want = b >= 3 ? Strategy.BUY : (sl >= 3 ? Strategy.SELL : Strategy.HOLD);
+            if (en.signal(dkc, i, dctx) != want) {
+                consistent = false;
+                break;
+            }
+        }
+        System.out.println("   bars with a 3+ buy majority: " + anyBuy);
+        check(consistent, "ensemble equals the majority-vote rule on every bar");
+        Backtester.Result enr = Backtester.run(en, dkc, 5, 10, 0, 0, 0, false, false, Backtester.DEFAULT_FEE);
+        check(enr.ok, "ensemble backtest completes");
+
 
         System.out.println("== risk sizing ==");
         double q = Backtester.sizeFor(1_000_000, 1, 4, 500_000, 30_000);
@@ -310,6 +339,15 @@ public class SelfTest {
         Backtester.Result be = Backtester.run(fixedBuy2, mixC, 50, 8, 0, 0, 0, false, true, 0.0);
         check(be.ok && Math.abs(be.netPct - 2.0) < 0.1,
                 "TP1 then fallback: half at ~4% + half at breakeven = +2% (net=" + be.netPct + ")");
+
+        System.out.println("== replay events ==");
+        check(full8.events.size() == 2, "no-TP1 run records entry+exit events");
+        double[] firstEv = full8.events.get(0);
+        check(firstEv[2] == 1, "first event is a buy");
+        double[] lastEv = full8.events.get(full8.events.size() - 1);
+        check(lastEv[2] == -1 && Math.abs(lastEv[3] - full8.netPct) < 1e-9,
+                "last event: sell whose equity equals netPct");
+        check(withTp1.events.size() == 3, "TP1 run records 3 events (buy, tp1, sell)");
 
         System.out.println("== markers ==");
         Store.clear();

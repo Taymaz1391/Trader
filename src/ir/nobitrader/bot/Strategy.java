@@ -220,9 +220,42 @@ public abstract class Strategy {
 
     // ------------------------------------------------------------------
 
-    public static final Strategy[] ALL = new Strategy[]{
+    /** the five base strategies the ensemble votes on (excludes itself) */
+    static final Strategy[] BASE = {
             new MaCross(), new RsiBollinger(), new MacdTrend(), new ComboScore(),
             new DonchianBreakout()
+    };
+
+    /** majority vote across the five base strategies */
+    public static class EnsembleVote extends Strategy {
+        public String name() { return "رأی‌گیری جمعی (۵ استراتژی)"; }
+
+        public String desc() {
+            return "هر پنج استراتژی هم‌زمان ارزیابی می‌شوند؛ خرید فقط وقتی انجام می‌شود که حداقل سه استراتژی هم‌جهت رأی دهد — فیلترینگ سخت‌گیرانه برای کاهش سیگنال‌های قلابی.";
+        }
+
+        public int signal(Candle[] cs, int i, Ctx ctx) {
+            int buys = 0, sells = 0;
+            for (Strategy s : BASE) {
+                int v = s.signal(cs, i, ctx);
+                if (v == BUY) buys++;
+                else if (v == SELL) sells++;
+            }
+            if (buys >= 3) {
+                reason = "رأی " + buys + " از ۵ استراتژی به خرید";
+                return BUY;
+            }
+            if (sells >= 3) {
+                reason = "رأی " + sells + " از ۵ استراتژی به فروش";
+                return SELL;
+            }
+            return HOLD;
+        }
+    }
+
+    public static final Strategy[] ALL = new Strategy[]{
+            new MaCross(), new RsiBollinger(), new MacdTrend(), new ComboScore(),
+            new DonchianBreakout(), new EnsembleVote()
     };
 
     public static Strategy byId(int id) {

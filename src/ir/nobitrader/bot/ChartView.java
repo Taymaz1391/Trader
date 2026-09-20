@@ -27,6 +27,12 @@ public class ChartView extends View {
     private double[] macd = new double[0];
     private double[] macdSig = new double[0];
     private double[][] markers = new double[0][]; // {candleTimeSec, price, side(+1/-1)}
+    private double[] bbUp = new double[0], bbMid = new double[0], bbLo = new double[0], ema50 = new double[0];
+    private boolean showBb = false, showEma50 = false;
+    private boolean replaying = false;
+    private int replayUpto = 0;
+    private int preVisible = 80, preTail = 0;
+    private double[][] replayEvts = new double[0][];
     private double entry;    // 0 = no entry line
     private double last;
     private String lastLabel = "";
@@ -56,6 +62,9 @@ public class ChartView extends View {
     private final Paint rsiBandP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rsiZoneP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint markP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint bbFillP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint bbMidP = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final Paint ema50P = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint macdP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint macdSigP = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint histUpP = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -121,11 +130,21 @@ public class ChartView extends View {
         histUpP.setColor(0x8816C784);
         histDnP.setStyle(Paint.Style.FILL);
         histDnP.setColor(0x88E5484D);
+        bbFillP.setStyle(Paint.Style.FILL);
+        bbFillP.setColor(0x1E3B82F6);
+        bbMidP.setStyle(Paint.Style.STROKE);
+        bbMidP.setStrokeWidth(1f * d);
+        bbMidP.setColor(0x803B82F6);
+        bbMidP.setPathEffect(new DashPathEffect(new float[]{4f, 4f}, 0));
+        ema50P.setStyle(Paint.Style.STROKE);
+        ema50P.setStrokeWidth(1.4f * d);
+        ema50P.setColor(0xFFF97316);
         setLayerType(LAYER_TYPE_SOFTWARE, null);
 
         scale = new ScaleGestureDetector(c, new ScaleGestureDetector.SimpleOnScaleGestureListener() {
             @Override
             public boolean onScale(ScaleGestureDetector det) {
+                if (replaying) return true;
                 float f = det.getScaleFactor();
                 if (f > 0.99f && f < 1.01f) return true;
                 int v = Math.round(visible / f);
@@ -138,6 +157,7 @@ public class ChartView extends View {
         gest = new GestureDetector(c, new GestureDetector.SimpleOnGestureListener() {
             @Override
             public boolean onScroll(MotionEvent e1, MotionEvent e2, float dx, float dy) {
+                if (replaying) return true;
                 if (data.length == 0 || getWidth() == 0) return true;
                 if (scale.isInProgress()) return true;
                 float stepW = (getWidth() - 66 * d()) / (float) visible;
@@ -202,6 +222,45 @@ public class ChartView extends View {
                 Math.round(360 * d()));
     }
 
+    /** optional price-panel overlays (bollinger bands + EMA50) */
+    public void setOverlays(double[] up, double[] mid, double[] lo, double[] e50) {
+        bbUp = up == null ? new double[0] : up;
+        bbMid = mid == null ? new double[0] : mid;
+        bbLo = lo == null ? new double[0] : lo;
+        ema50 = e50 == null ? new double[0] : e50;
+        invalidate();
+    }
+
+    public boolean toggleBb() { showBb = !showBb; invalidate(); return showBb; }
+
+    public boolean toggleEma50() { showEma50 = !showEma50; invalidate(); return showEma50; }
+
+    /** start replay mode: events = {candleIndex, price, side, equityPct} */
+    public void beginReplay(double[][] evts) {
+        preVisible = visible;
+        preTail = tail;
+        replayEvts = evts == null ? new double[0][] : evts;
+        replaying = true;
+        replayUpto = 25;
+        visible = Math.max(25, data.length);
+        tail = 0;
+        invalidate();
+    }
+
+    public void setReplayUpto(int n, String chip) {
+        replayUpto = n;
+        invalidate();
+    }
+
+    public void endReplay() {
+        replaying = false;
+        replayEvts = new double[0][];
+        visible = preVisible;
+        tail = preTail;
+        clampWindow();
+        invalidate();
+    }
+
     @Override
     protected void onDraw(Canvas c) {
         super.onDraw(c);
@@ -214,6 +273,7 @@ public class ChartView extends View {
         }
 
         int end = data.length - tail;
+        if (replaying) end = Math.max(2, Math.min(replayUpto, data.length));
         int start = Math.max(0, end - visible);
         int n = end - start;
         if (n < 2) return;
@@ -242,6 +302,20 @@ public class ChartView extends View {
             if (!Double.isNaN(ema[i])) {
                 min = Math.min(min, ema[i]);
                 max = Math.max(max, ema[i]);
+            }
+        }
+        if (showBb && bbUp.length == data.length) {
+            for (int i = start; i < end; i++) {
+                if (!Double.isNaN(bbUp[i])) max = Math.max(max, bbUp[i]);
+                if (!Double.isNaN(bbLo[i])) min = Math.min(min, bbLo[i]);
+            }
+        }
+        if (showEma50 && ema50.length == data.length) {
+            for (int i = start; i < end; i++) {
+                if (!Double.isNaN(ema50[i])) {
+                    min = Math.min(min, ema50[i]);
+                    max = Math.max(max, ema50[i]);
+                }
             }
         }
         if (entry > 0) {
@@ -351,6 +425,50 @@ public class ChartView extends View {
         float volBase = mmB + 6 * d() + volH;
         c.drawLine(padL, volBase, padL + w, volBase, gridP);
 
+        // ---- bollinger / EMA50 overlays (behind candles) ----
+        if (showBb && bbUp.length == data.length) {
+            Path fill = new Path();
+            Path mid = new Path();
+            int fn = 0;
+            for (int i = start; i < end; i++) {
+                if (Double.isNaN(bbUp[i]) || Double.isNaN(bbLo[i])) continue;
+                float x = x0 + step * (i - start + 0.5f);
+                float yU = padT + (float) ((max - bbUp[i]) / span) * priceH;
+                if (fn == 0) fill.moveTo(x, yU);
+                else fill.lineTo(x, yU);
+                fn++;
+            }
+            for (int i = end - 1; i >= start; i--) {
+                if (Double.isNaN(bbUp[i]) || Double.isNaN(bbLo[i])) continue;
+                float x = x0 + step * (i - start + 0.5f);
+                float yL = padT + (float) ((max - bbLo[i]) / span) * priceH;
+                fill.lineTo(x, yL);
+            }
+            if (fn > 1) {
+                fill.close();
+                c.drawPath(fill, bbFillP);
+            }
+            boolean mo = false;
+            for (int i = start; i < end; i++) {
+                if (Double.isNaN(bbMid[i])) continue;
+                float x = x0 + step * (i - start + 0.5f);
+                float y = padT + (float) ((max - bbMid[i]) / span) * priceH;
+                if (!mo) { mid.moveTo(x, y); mo = true; } else mid.lineTo(x, y);
+            }
+            if (mo) c.drawPath(mid, bbMidP);
+        }
+        if (showEma50 && ema50.length == data.length) {
+            Path e5 = new Path();
+            boolean eo = false;
+            for (int i = start; i < end; i++) {
+                if (Double.isNaN(ema50[i])) continue;
+                float x = x0 + step * (i - start + 0.5f);
+                float y = padT + (float) ((max - ema50[i]) / span) * priceH;
+                if (!eo) { e5.moveTo(x, y); eo = true; } else e5.lineTo(x, y);
+            }
+            if (eo) c.drawPath(e5, ema50P);
+        }
+
         for (int i = start; i < end; i++) {
             Candle k = data[i];
             float cx = x0 + step * (i - start + 0.5f);
@@ -419,6 +537,33 @@ public class ChartView extends View {
             }
             tp.close();
             c.drawPath(tp, markP);
+        }
+
+        // replay events: triangles keyed by candle index (not time)
+        if (replaying && replayEvts.length > 0) {
+            for (double[] ev : replayEvts) {
+                int ei = (int) ev[0];
+                if (ei < start || ei >= end) continue;
+                double mp = ev[1];
+                boolean buy = ev[2] > 0;
+                float cx = x0 + step * (ei - start + 0.5f);
+                float ty = padT + (float) ((max - mp) / span) * priceH;
+                markP.setColor(buy ? GREEN : RED);
+                Path tp = new Path();
+                if (buy) {
+                    float y = ty + 16 * d();
+                    tp.moveTo(cx, y - 7 * d());
+                    tp.lineTo(cx - 5.5f * d, y);
+                    tp.lineTo(cx + 5.5f * d, y);
+                } else {
+                    float y = ty - 16 * d();
+                    tp.moveTo(cx, y + 7 * d());
+                    tp.lineTo(cx - 5.5f * d, y);
+                    tp.lineTo(cx + 5.5f * d, y);
+                }
+                tp.close();
+                c.drawPath(tp, markP);
+            }
         }
 
         if (entry > 0) {

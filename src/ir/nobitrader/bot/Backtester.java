@@ -17,6 +17,8 @@ public class Backtester {
         public int wins;
         public double maxDDPct;  // max drawdown, percent (positive number)
         public boolean ok;
+        /** replay events: {candleIndex, price, side(+1 buy / -1 sell), equityPct} */
+        public java.util.ArrayList<double[]> events = new java.util.ArrayList<double[]>();
     }
 
     /**
@@ -111,6 +113,8 @@ public class Backtester {
                             cash += half * tp1Price * (1.0 - fee);
                             coins -= half;
                             tp1Done = true;
+                            r.events.add(new double[]{i, tp1Price, -1,
+                                    (cash + coins * close - 1.0) * 100.0});
                         }
                     }
                     double slPrice = entry * (1.0 - posSlPct / 100.0);
@@ -132,6 +136,7 @@ public class Backtester {
                             exit = tpPrice;
                         }
                         cash += coins * exit * (1.0 - fee);
+                        r.events.add(new double[]{i, exit, -1, (cash - 1.0) * 100.0});
                         trades++;
                         if (cash > invested) wins++;
                         coins = 0;
@@ -147,6 +152,7 @@ public class Backtester {
                         cash = 0;
                         peakPrice = close;
                         tp1Done = false;
+                        r.events.add(new double[]{i, entry, 1, (coins * close - 1.0) * 100.0});
                         if (atrStops && !Double.isNaN(ctx.atr14[i])) {
                             double[] eff = atrStopsPct(ctx.atr14[i], close, slPct, tpPct);
                             posSlPct = eff[0];

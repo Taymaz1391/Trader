@@ -66,6 +66,11 @@ public class MainActivity extends Activity {
     private ScrollView[] pages = new ScrollView[4];
     private EditText riskEdit;
     private EditText dailyEdit, alertPriceEdit;
+    private Button playBtn;
+    private boolean replaying = false;
+    private int replayPos = 0, replayLen = 0;
+    private double[][] replayEvents = new double[0][];
+    private Runnable replayTick;
     private Switch htfSwitch;
     private Spinner alertSymSpin, alertDirSpin;
     private LinearLayout alertsList;
@@ -398,6 +403,49 @@ public class MainActivity extends Activity {
         // ---------- chart card ----------
         LinearLayout chc = card();
         chc.addView(text("🕯️ نمودار و تحلیل لحظه‌ای", 15f, GOLD, true));
+
+        // overlay toggles
+        LinearLayout ovRow = row();
+        ovRow.setGravity(Gravity.CENTER_VERTICAL);
+        final TextView bbChip = text(" باند بولینگر ", 11f, TEXT2, false);
+        final TextView e50Chip = text(" EMA50 ", 11f, TEXT2, false);
+        android.graphics.drawable.GradientDrawable chipOff =
+                new android.graphics.drawable.GradientDrawable();
+        chipOff.setColor(0xFF151D30);
+        chipOff.setCornerRadius(dp(12));
+        chipOff.setStroke(dp(1), STROKE);
+        bbChip.setBackground(chipOff);
+        android.graphics.drawable.GradientDrawable chipOff2 =
+                new android.graphics.drawable.GradientDrawable();
+        chipOff2.setColor(0xFF151D30);
+        chipOff2.setCornerRadius(dp(12));
+        chipOff2.setStroke(dp(1), STROKE);
+        e50Chip.setBackground(chipOff2);
+        bbChip.setPadding(dp(8), dp(4), dp(8), dp(4));
+        e50Chip.setPadding(dp(8), dp(4), dp(8), dp(4));
+        bbChip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean on = chartView.toggleBb();
+                bbChip.setTextColor(on ? GOLD : TEXT2);
+                bbChip.setTypeface(Typeface.create(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL));
+            }
+        });
+        e50Chip.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                boolean on = chartView.toggleEma50();
+                e50Chip.setTextColor(on ? GOLD : TEXT2);
+                e50Chip.setTypeface(Typeface.create(Typeface.DEFAULT, on ? Typeface.BOLD : Typeface.NORMAL));
+            }
+        });
+        ovRow.addView(bbChip);
+        LinearLayout.LayoutParams e5lp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        e5lp.setMarginStart(dp(6));
+        ovRow.addView(e50Chip, e5lp);
+        chc.addView(ovRow);
+
         chartView = new ChartView(this);
         LinearLayout.LayoutParams cvLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -406,6 +454,15 @@ public class MainActivity extends Activity {
         chc.addView(chartView);
         analysisView = text("خط طلایی: EMA21 — میله‌های پایین: حجم معاملات — خط‌چین: قیمت ورود شما", 12f, TEXT2, false);
         chc.addView(margin(analysisView, 6));
+        playBtn = button("🎬 پخش شبیه‌سازی روی نمودار", 0xFF2A3752);
+        chc.addView(margin(playBtn, 8));
+        playBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                if (replaying) stopReplay();
+                else startReplay();
+            }
+        });
         linChart.addView(chc);
 
         // ---------- control card ----------
@@ -727,7 +784,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.6 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.7 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1495,13 +1552,22 @@ public class MainActivity extends Activity {
                     final double[] rsiArr = new double[len];
                     final double[] macdArr = new double[len];
                     final double[] sigArr = new double[len];
+                    final double[] bbU = new double[len];
+                    final double[] bbM = new double[len];
+                    final double[] bbL = new double[len];
+                    final double[] e50 = new double[len];
                     for (int i = from; i < n; i++) {
                         sub[i - from] = f[i];
                         ema[i - from] = ctx.ema21[i];
                         rsiArr[i - from] = ctx.rsi14[i];
                         macdArr[i - from] = ctx.macdLine[i];
                         sigArr[i - from] = ctx.macdSig[i];
+                        bbU[i - from] = ctx.bbUp[i];
+                        bbM[i - from] = ctx.bbMid[i];
+                        bbL[i - from] = ctx.bbLo[i];
+                        e50[i - from] = ctx.sma50[i];
                     }
+                    chartView.setOverlays(bbU, bbM, bbL, e50);
                     // map trade timestamps to their candle open time for markers
                     long tfSec = Market.tfSeconds(cfg.resolution);
                     java.util.ArrayList<double[]> ms = Store.markers();
@@ -1746,6 +1812,114 @@ public class MainActivity extends Activity {
             }
         } catch (Exception ignored) {
         }
+    }
+
+    /** ---- replay simulator: animate the strategy trading over history ---- */
+    private void startReplay() {
+        final Prefs.Cfg cfg = prefs.cfg();
+        final Market m = Market.of(cfg.symbol);
+        playBtn.setText("⏳ در حال دریافت داده…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    NobitexApi api = new NobitexApi(cfg.token);
+                    final Candle[] cs = api.udfHistory(m.symbol, cfg.resolution, 300);
+                    if (cs.length < Strategy.WARMUP + 10) {
+                        replayFail("داده کافی برای پخش وجود ندارد");
+                        return;
+                    }
+                    Strategy st = Strategy.byId(cfg.strategyId);
+                    Backtester.Result r = Backtester.run(st, cs, cfg.slPct, cfg.tpPct,
+                            cfg.trailingPct, 0, 0, cfg.atrStops, cfg.tp1Enabled,
+                            Backtester.DEFAULT_FEE);
+                    if (!r.ok || r.events.isEmpty()) {
+                        replayFail("در این بازه سیگنالی برای پخش ثبت نشد");
+                        return;
+                    }
+                    final Strategy.Ctx ctx = Strategy.Ctx.compute(cs);
+                    final double[][] evts = r.events.toArray(new double[0][]);
+                    final int n = cs.length;
+                    postUi(new Runnable() {
+                        @Override
+                        public void run() {
+                            double[] emp = new double[0];
+                            chartView.setData(cs, ctx.ema21, ctx.rsi14, ctx.macdLine, ctx.macdSig,
+                                    0, Fmt.quote(cs[n - 1].c, m.isRls), new double[0][]);
+                            chartView.setOverlays(ctx.bbUp, ctx.bbMid, ctx.bbLo, ctx.sma50);
+                            chartView.beginReplay(evts);
+                            replaying = true;
+                            replayEvents = evts;
+                            replayLen = n;
+                            replayPos = Strategy.WARMUP;
+                            playBtn.setText("■ توقف پخش");
+                            try {
+                                playBtn.getBackground().setTint(RED);
+                            } catch (Throwable ignored) {
+                            }
+                            scheduleReplayTick();
+                        }
+                    });
+                } catch (Exception e) {
+                    replayFail("خطا در دریافت داده: " + e.getMessage());
+                }
+            }
+        }).start();
+    }
+
+    private void replayFail(final String msg) {
+        postUi(new Runnable() {
+            @Override
+            public void run() {
+                toast(msg);
+                resetPlayBtn();
+            }
+        });
+    }
+
+    private void resetPlayBtn() {
+        playBtn.setText("🎬 پخش شبیه‌سازی روی نمودار");
+        try {
+            playBtn.getBackground().setTint(0xFF2A3752);
+        } catch (Throwable ignored) {
+        }
+    }
+
+    private void scheduleReplayTick() {
+        replayTick = new Runnable() {
+            @Override
+            public void run() {
+                if (!replaying) return;
+                replayPos += 2;
+                if (replayPos > replayLen) replayPos = replayLen;
+                int cnt = 0;
+                double eq = 0;
+                for (double[] ev : replayEvents) {
+                    if (ev[0] < replayPos) {
+                        cnt++;
+                        eq = ev[3];
+                    }
+                }
+                chartView.setReplayUpto(replayPos, "");
+                analysisView.setText("🎬 پخش شبیه‌سازی — کندل " + replayPos + "/" + replayLen
+                        + " — معاملات: " + cnt
+                        + (cnt > 0 ? " — سود تجمعی: " + Fmt.pct(eq) : ""));
+                if (replayPos >= replayLen) {
+                    stopReplay();
+                    return;
+                }
+                ui.postDelayed(this, 40);
+            }
+        };
+        ui.postDelayed(replayTick, 400);
+    }
+
+    private void stopReplay() {
+        replaying = false;
+        if (replayTick != null) ui.removeCallbacks(replayTick);
+        chartView.endReplay();
+        resetPlayBtn();
+        fetchChart();
     }
 
     private void postUi(Runnable r) {
