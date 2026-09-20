@@ -56,7 +56,7 @@
 
 ## 📲 نصب
 
-1. فایل `release/NobiTrader-v1.7.apk` را دانلود کنید (یا از [Actions](../../actions) — آرتیفکت `NobiTrader-APK`).
+1. فایل `release/NobiTrader-v1.8.apk` را دانلود کنید (یا از [Actions](../../actions) — آرتیفکت `NobiTrader-APK`).
 2. روی گوشی اندرویدی (نسخه ۷ به بالا) منتقل و نصب کنید.
 3. اگر پیام «نصب از منابع ناشناس» آمد، اجازه نصب را بدهید.
 
@@ -97,7 +97,7 @@
 
 ```bash
 # نیازمند: JDK، Android SDK (build-tools + platform) یا ابزار معادل
-bash scripts/build-apk.sh          # خروجی: release/NobiTrader-v1.7.apk
+bash scripts/build-apk.sh          # خروجی: release/NobiTrader-v1.8.apk
 ```
 
 اسکریپت کاملاً از ابزارهای خام اندروید استفاده می‌کند (aapt2 + javac + d8 + امضا) و به Gradle نیاز ندارد. روی GitHub Actions هم با پوش به برنچ، APK به‌صورت خودکار ساخته و در بخش Actions و همچنین در پوشه `release/` همین ریپازیتوری قرار می‌گیرد.

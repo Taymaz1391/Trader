@@ -21,6 +21,7 @@ public class Prefs {
 
     public static class Cfg {
         public String token = "";
+        public String apiSecret = "";    // privateKey of the new API-key system
         public String symbol = "BTCIRT";
         public String resolution = "60";   // candle timeframe
         public int intervalSec = 300;      // check interval
@@ -46,6 +47,7 @@ public class Prefs {
     public Cfg cfg() {
         Cfg c = new Cfg();
         c.token = sp.getString("token", "");
+        c.apiSecret = sp.getString("apiSecret", "");
         c.symbol = sp.getString("symbol", "BTCIRT");
         c.resolution = sp.getString("resolution", "60");
         c.intervalSec = sp.getInt("intervalSec", 300);
@@ -72,6 +74,7 @@ public class Prefs {
     public void saveCfg(Cfg c) {
         sp.edit()
                 .putString("token", c.token)
+                .putString("apiSecret", c.apiSecret)
                 .putString("symbol", c.symbol)
                 .putString("resolution", c.resolution)
                 .putInt("intervalSec", c.intervalSec)
@@ -97,6 +100,7 @@ public class Prefs {
 
     // convenience single-field setters used by the UI
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }
+    public void setApiSecret(String v) { sp.edit().putString("apiSecret", v == null ? "" : v.trim()).apply(); }
     public void setSymbol(String v) { sp.edit().putString("symbol", v).apply(); }
     public void setResolution(String v) { sp.edit().putString("resolution", v).apply(); }
     public void setIntervalSec(int v) { sp.edit().putInt("intervalSec", v).apply(); }

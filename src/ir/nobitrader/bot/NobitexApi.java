@@ -14,7 +14,11 @@ import java.util.zip.GZIPInputStream;
 
 /**
  * Minimal client for the Nobitex API (https://apiv2.nobitex.ir).
- * Public endpoints need no auth; trading endpoints use the "Authorization: Token X" header.
+ * Public endpoints need no auth. Two authentication modes are supported:
+ *  - classic panel token:  "Authorization: Token X" header
+ *  - new API key + secret: Ed25519-signed headers
+ *      Nobitex-Key / Nobitex-Timestamp / Nobitex-Signature
+ *    where signature = base64(Ed25519(timestamp + method + url + body))
  */
 public class NobitexApi {
 
@@ -24,10 +28,23 @@ public class NobitexApi {
     public static final double MIN_RLS = 3_000_000;
     public static final double MIN_USDT = 11;
 
+    /** classic token, or the PUBLIC key of the new API-key system */
     private final String token;
+    /** privateKey of the new API-key system (empty = classic token mode) */
+    private final String apiSecret;
 
     public NobitexApi(String token) {
+        this(token, "");
+    }
+
+    public NobitexApi(String token, String apiSecret) {
         this.token = token == null ? "" : token.trim();
+        this.apiSecret = apiSecret == null ? "" : apiSecret.trim();
+    }
+
+    /** true when using the new Ed25519-signed API key */
+    public boolean isKeyAuth() {
+        return !apiSecret.isEmpty();
     }
 
     public static class ApiError extends Exception {
@@ -49,9 +66,28 @@ public class NobitexApi {
             c.setConnectTimeout(15000);
             c.setReadTimeout(25000);
             c.setRequestProperty("Accept", "application/json");
-            c.setRequestProperty("User-Agent", "NobiTraderBot/1.0 (Android)");
-            if (auth && !token.isEmpty()) {
-                c.setRequestProperty("Authorization", "Token " + token);
+            c.setRequestProperty("User-Agent", "TraderBot/NobiTrader");
+            if (auth) {
+                if (token.isEmpty()) {
+                    throw new ApiError("کلید API تنظیم نشده است", 0, "NoToken");
+                }
+                if (isKeyAuth()) {
+                    // new API-key mode: Ed25519-signed request
+                    String ts = String.valueOf(System.currentTimeMillis() / 1000L);
+                    String method = post ? "POST" : "GET";
+                    String bodyStr = (post && jsonBody != null) ? jsonBody : "";
+                    String msg = ts + method + path + bodyStr;
+                    byte[] seed = Ed25519.b64Decode(apiSecret);
+                    if (seed.length != 32) {
+                        throw new ApiError("سکرت کی نامعتبر است — کلید خصوصی باید ۳۲ بایت باشد", 0, "BadSecret");
+                    }
+                    byte[] sig = Ed25519.sign(seed, msg.getBytes(StandardCharsets.UTF_8));
+                    c.setRequestProperty("Nobitex-Key", token);
+                    c.setRequestProperty("Nobitex-Timestamp", ts);
+                    c.setRequestProperty("Nobitex-Signature", Ed25519.b64Encode(sig));
+                } else {
+                    c.setRequestProperty("Authorization", "Token " + token);
+                }
             }
             if (post) {
                 c.setRequestMethod("POST");
@@ -82,7 +118,14 @@ public class NobitexApi {
                 throw new ApiError("تعداد درخواست‌ها زیاد است؛ کمی صبر کنید (429)", 429, "TooManyRequests");
             }
             if (code >= 400) {
-                throw new ApiError("خطای سرور " + code, code, "Http" + code);
+                String em = "خطای سرور " + code;
+                try {
+                    JSONObject eo = new JSONObject(body);
+                    String m = errText(eo);
+                    if (!m.isEmpty()) em = m + " (HTTP " + code + ")";
+                } catch (Throwable ignored) {
+                }
+                throw new ApiError(em, code, "Http" + code);
             }
             return body;
         } finally {
@@ -185,7 +228,6 @@ public class NobitexApi {
 
     /** wallet list: {"status":"ok","wallets":[{currency,balance,activeBalance,...}]} */
     public JSONObject wallets() throws Exception {
-        if (token.isEmpty()) throw new ApiError("توکن API تنظیم نشده است", 0, "NoToken");
         JSONObject o = new JSONObject(http("/users/wallets/list", false, null, true));
         if (!"ok".equals(o.optString("status"))) {
             throw new ApiError(errText(o), 0, "WalletError");
@@ -219,7 +261,6 @@ public class NobitexApi {
      * @param amount quantity in base currency (e.g. btc)
      */
     public JSONObject addMarketOrder(String type, String src, String dst, double amount) throws Exception {
-        if (token.isEmpty()) throw new ApiError("توکن API تنظیم نشده است", 0, "NoToken");
         JSONObject b = new JSONObject();
         b.put("type", type);
         b.put("execution", "market");
@@ -235,7 +276,6 @@ public class NobitexApi {
 
     /** order status by id (returns the "order" object) */
     public JSONObject orderStatus(long id) throws Exception {
-        if (token.isEmpty()) throw new ApiError("توکن API تنظیم نشده است", 0, "NoToken");
         JSONObject b = new JSONObject();
         b.put("id", id);
         JSONObject o = new JSONObject(http("/market/orders/status", true, b.toString(), true));
@@ -243,5 +283,54 @@ public class NobitexApi {
             throw new ApiError(errText(o), 0, "OrderStatusError");
         }
         return o.optJSONObject("order");
+    }
+
+    // ------------------------------------------------------------------ connection test
+
+    /** result of a connection check */
+    public static class ConnResult {
+        public boolean ok;
+        public String detail;
+
+        public ConnResult(boolean ok, String detail) {
+            this.ok = ok;
+            this.detail = detail;
+        }
+    }
+
+    /**
+     * Verify the credentials against a lightweight authenticated endpoint
+     * (GET /users/profile) and return a human-readable Persian result.
+     */
+    public ConnResult testConnection() {
+        if (token.isEmpty()) {
+            return new ConnResult(false, "کلید API وارد نشده است");
+        }
+        try {
+            JSONObject o = new JSONObject(http("/users/profile", false, null, true));
+            if ("ok".equals(o.optString("status"))) {
+                String who = "";
+                JSONObject pr = o.optJSONObject("profile");
+                if (pr != null) {
+                    String em = pr.optString("email", "");
+                    if (!em.isEmpty()) who = "\nحساب: " + em;
+                }
+                return new ConnResult(true, (isKeyAuth()
+                        ? "✅ متصل شد (کلید API جدید با امضای Ed25519)" + who
+                        : "✅ متصل شد (توکن کلاسیک)" + who));
+            }
+            return new ConnResult(false, "پاسخ غیرمنتظره: " + errText(o));
+        } catch (ApiError e) {
+            String hint = "";
+            if (e.http == 401 || e.http == 403) {
+                hint = isKeyAuth()
+                        ? "\n\nراهنما: کلید عمومی و سکرت کی را دقیقاً و کامل کپی کنید؛ کلید باید مجوز READ و TRADE داشته باشد؛ اگر هنگام ساخت کلید «لیست سفید IP» فعال کرده‌اید، گوشی از آن IPها وصل نمی‌شود."
+                        : "\n\nراهنما: توکن کلاسیک را از پنل نوبیتکس (بخش API) کامل کپی کنید. اگر کلید جدید (با سکرت کی) دارید، سکرت کی را در فیلد پایین وارد کنید.";
+            }
+            return new ConnResult(false, "❌ " + e.getMessage() + hint);
+        } catch (Exception e) {
+            return new ConnResult(false, "❌ خطا: " + e.getMessage()
+                    + "\n\nاینترنت/VPN گوشی را بررسی کنید.");
+        }
     }
 }

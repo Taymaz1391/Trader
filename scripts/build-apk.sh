@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-OUT_NAME="${OUT_NAME:-NobiTrader-v1.7.apk}"
+OUT_NAME="${OUT_NAME:-NobiTrader-v1.8.apk}"
 BUILD=build
 OUT=release
 
@@ -60,7 +60,7 @@ echo "== [2/6] link resources (aapt2) =="
 "$AAPT2" link -o "$BUILD/app-base.apk" -I "$PLATFORM" \
   --manifest AndroidManifest.xml \
   --min-sdk-version 24 --target-sdk-version 33 \
-  --version-code 8 --version-name 1.7 \
+  --version-code 9 --version-name 1.8 \
   --java "$BUILD/gen" \
   "$BUILD/res.zip"
 

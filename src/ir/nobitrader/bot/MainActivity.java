@@ -66,6 +66,9 @@ public class MainActivity extends Activity {
     private ScrollView[] pages = new ScrollView[4];
     private EditText riskEdit;
     private EditText dailyEdit, alertPriceEdit;
+    private EditText secretEdit;
+    private Button testBtn;
+    private TextView connView;
     private Button playBtn;
     private boolean replaying = false;
     private int replayPos = 0, replayLen = 0;
@@ -720,9 +723,9 @@ public class MainActivity extends Activity {
         // ---------- account card ----------
         LinearLayout ac = card();
         ac.addView(text("🔑 اتصال به حساب نوبیتکس", 15f, GOLD, true));
-        ac.addView(margin(label("توکن API"), 10));
+        ac.addView(margin(label("توکن یا کلید عمومی API"), 10));
         tokenEdit = new EditText(this);
-        tokenEdit.setHint("توکن را از پنل نوبیتکس (بخش API) بسازید");
+        tokenEdit.setHint("توکن کلاسیک یا کلید عمومی (Key) از پنل نوبیتکس");
         tokenEdit.setTextSize(14f);
         tokenEdit.setTextColor(TEXT);
         tokenEdit.setHintTextColor(TEXT2);
@@ -730,17 +733,44 @@ public class MainActivity extends Activity {
         tokenEdit.setTransformationMethod(PasswordTransformationMethod.getInstance());
         tokenEdit.setTypeface(Typeface.DEFAULT);
         ac.addView(tokenEdit);
-        connectBtn = button("بررسی اتصال و موجودی", 0xFF2A3752);
+        ac.addView(margin(label("سکرت کی (کلید خصوصی) — فقط برای کلید API جدید"), 10));
+        secretEdit = new EditText(this);
+        secretEdit.setHint("اگر نوبیتکس به شما Key + Secret داده، Secret را اینجا بگذارید");
+        secretEdit.setTextSize(14f);
+        secretEdit.setTextColor(TEXT);
+        secretEdit.setHintTextColor(TEXT2);
+        secretEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        secretEdit.setTransformationMethod(PasswordTransformationMethod.getInstance());
+        secretEdit.setTypeface(Typeface.DEFAULT);
+        ac.addView(secretEdit);
+        connView = text("دو حالت پشتیبانی می‌شود:\n• توکن کلاسیک → فیلد بالا فقط\n• کلید API جدید (Key + Secret) → هر دو فیلد، با امضای Ed25519", 11f, TEXT2, false);
+        connView.setLineSpacing(dp(2), 1f);
+        ac.addView(margin(connView, 6));
+        testBtn = button("🔌 تست اتصال", 0xFF2A3752);
+        testBtn.setTextColor(TEXT);
+        LinearLayout.LayoutParams tbLp = new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        tbLp.topMargin = dp(10);
+        ac.addView(testBtn, tbLp);
+        connectBtn = button("بررسی موجودی 💰", 0xFF2A3752);
         connectBtn.setTextColor(TEXT);
         LinearLayout.LayoutParams cbLp = new LinearLayout.LayoutParams(
-                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
         cbLp.topMargin = dp(10);
+        cbLp.setMarginStart(dp(8));
         connectBtn.setLayoutParams(cbLp);
         ac.addView(connectBtn);
-        walletView = text("برای معامله واقعی، توکن را وارد و بررسی کنید. توکن فقط روی همین گوشی ذخیره می‌شود.", 12f, TEXT2, false);
+        walletView = text("برای معامله واقعی، کلید را وارد و بررسی کنید. کلید فقط روی همین گوشی ذخیره می‌شود.", 12f, TEXT2, false);
         walletView.setLineSpacing(dp(2), 1f);
         ac.addView(margin(walletView, 8));
         linSettings.addView(ac);
+
+        testBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runConnTest();
+            }
+        });
 
         // ---------- backtest card ----------
         LinearLayout bc = card();
@@ -784,7 +814,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.7 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.8 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1210,6 +1240,7 @@ public class MainActivity extends Activity {
             return false;
         }
         prefs.setToken(tokenEdit.getText().toString().trim());
+        prefs.setApiSecret(secretEdit.getText().toString().trim());
         prefs.setTradeAmount(amount);
         prefs.setSlPct(sl);
         prefs.setTpPct(tp);
@@ -1243,6 +1274,7 @@ public class MainActivity extends Activity {
     private void loadIntoUi() {
         Prefs.Cfg c = prefs.cfg();
         tokenEdit.setText(c.token);
+        secretEdit.setText(c.apiSecret);
         amountEdit.setText(fmtNum(c.tradeAmount));
         slEdit.setText(fmtNum(c.slPct));
         tpEdit.setText(fmtNum(c.tpPct));
@@ -1306,12 +1338,14 @@ public class MainActivity extends Activity {
             return;
         }
         prefs.setToken(token);
+        prefs.setApiSecret(secretEdit.getText().toString().trim());
+        final String secret = secretEdit.getText().toString().trim();
         walletView.setText("در حال بررسی…");
         startThread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    NobitexApi api = new NobitexApi(token);
+                    NobitexApi api = new NobitexApi(token, secret);
                     final double rls = api.walletBalance("rls");
                     final Market m = Market.of(Market.SYMBOLS[symbolSpin.getSelectedItemPosition()]);
                     final double base = api.walletBalance(m.src);
@@ -1352,7 +1386,7 @@ public class MainActivity extends Activity {
             public void run() {
                 String out;
                 try {
-                    NobitexApi api = new NobitexApi(cfg.token);
+                    NobitexApi api = new NobitexApi(cfg.token, cfg.apiSecret);
                     Candle[] cs = api.udfHistory(m.symbol, cfg.resolution, 500);
                     StringBuilder sb = new StringBuilder();
                     sb.append("📊 نتیجه بک‌تست روی ").append(cs.length).append(" کندل ").append(tfName(cfg.resolution)).append(" (")
@@ -1744,7 +1778,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    NobitexApi api = new NobitexApi(cfg.token);
+                    NobitexApi api = new NobitexApi(cfg.token, cfg.apiSecret);
                     for (int i = 0; i < CHIP_SYMS.length; i++) {
                         final int fi = i;
                         try {
@@ -1823,7 +1857,7 @@ public class MainActivity extends Activity {
             @Override
             public void run() {
                 try {
-                    NobitexApi api = new NobitexApi(cfg.token);
+                    NobitexApi api = new NobitexApi(cfg.token, cfg.apiSecret);
                     final Candle[] cs = api.udfHistory(m.symbol, cfg.resolution, 300);
                     if (cs.length < Strategy.WARMUP + 10) {
                         replayFail("داده کافی برای پخش وجود ندارد");
@@ -1920,6 +1954,33 @@ public class MainActivity extends Activity {
         chartView.endReplay();
         resetPlayBtn();
         fetchChart();
+    }
+
+    /** run the API connection test (both classic and new API-key auth) */
+    private void runConnTest() {
+        final String key = tokenEdit.getText().toString().trim();
+        final String secret = secretEdit.getText().toString().trim();
+        if (key.isEmpty()) {
+            toast("کلید یا توکن را وارد کنید");
+            return;
+        }
+        prefs.setToken(key);
+        prefs.setApiSecret(secret);
+        connView.setText("⏳ در حال تست اتصال…");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                final NobitexApi.ConnResult r = new NobitexApi(key, secret).testConnection();
+                postUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        connView.setText(r.detail);
+                        connView.setTextColor(r.ok ? GREEN : RED);
+                        toast(r.ok ? "اتصال برقرار شد ✅" : "اتصال ناموفق");
+                    }
+                });
+            }
+        }).start();
     }
 
     private void postUi(Runnable r) {

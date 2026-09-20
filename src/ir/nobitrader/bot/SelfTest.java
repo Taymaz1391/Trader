@@ -21,6 +21,18 @@ public class SelfTest {
         }
     }
 
+    static byte[] hex(String h) {
+        byte[] out = new byte[h.length() / 2];
+        for (int i = 0; i < out.length; i++) {
+            out[i] = (byte) Integer.parseInt(h.substring(i * 2, i * 2 + 2), 16);
+        }
+        return out;
+    }
+
+    static boolean eq(byte[] a, byte[] b) {
+        return java.util.Arrays.equals(a, b);
+    }
+
     public static void main(String[] args) throws Exception {
         System.out.println("== indicators ==");
         double[] p = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
@@ -362,6 +374,28 @@ public class SelfTest {
         check(mk.size() == 2, "markers size = trades");
         check(Math.abs(mk.get(0)[0] - 1_700_000_123.0) < 1e-6 && mk.get(0)[2] == 1, "buy marker time+side");
         check(Math.abs(mk.get(1)[1] - 6.0) < 1e-9 && mk.get(1)[2] == -1, "sell marker price+side");
+
+        System.out.println("== ed25519 (RFC 8032 test vectors) ==");
+        byte[] seed1 = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
+        byte[] pub1 = Ed25519.publicKey(seed1);
+        check(eq(pub1, hex("d75a980182b10ab7d54bfed3c964073a0ee172f3daa62325af021a68f707511a")),
+                "RFC8032 vector 1 public key");
+        byte[] sig1 = Ed25519.sign(seed1, new byte[0]);
+        check(eq(sig1, hex("e5564300c360ac729086e2cc806e828a84877f1eb8e5d974d873e065224901555fb8821590a33bacc61e39701cf9b46bd25bf5f0595bbe24655141438e7a100b")),
+                "RFC8032 vector 1 signature (empty message)");
+        byte[] seed2 = hex("4ccd089b28ff96da9db6c346ec114e0f5b8a319f35aba624da8cf6ed4fb8a6fb");
+        byte[] sig2 = Ed25519.sign(seed2, new byte[]{0x72});
+        check(eq(sig2, hex("92a009a9f0d4cab8720e820b5f642540a2b27b5416503f8fb3762223ebdb69da085ac1e43e15996e458f3613d0f11d8c387b2eaeb4302aeeb00d291612bb0c00")),
+                "RFC8032 vector 2 signature (msg=0x72)");
+        // lenient base64 decoding of Nobitex-style URL-safe keys
+        check(Ed25519.b64Decode("S5y19KewZzheCWCO4xqMcwwvtR8vQ-hHjE_cdjz-XxE=").length == 32,
+                "url-safe base64 secret decodes to 32 bytes");
+        check(eq(Ed25519.b64Decode(Ed25519.b64Encode(sig1)), sig1),
+                "base64 encode/decode round-trip");
+        // nobitex signature message format: timestamp + method + path + body
+        String smsg = "1700000000GET/market/orders/list?fromId=123";
+        check(Ed25519.sign(seed1, smsg.getBytes(java.nio.charset.StandardCharsets.UTF_8)).length == 64,
+                "request-signature message format produces a 64-byte signature");
 
         System.out.println("== macd indicator ==");
         double[] macdUp = new double[80];

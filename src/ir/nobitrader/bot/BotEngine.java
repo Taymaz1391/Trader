@@ -135,7 +135,7 @@ public class BotEngine {
     private void cycle(Prefs.Cfg cfg) throws Exception {
         lastError = "";
         Market m = Market.of(cfg.symbol);
-        NobitexApi api = new NobitexApi(cfg.token);
+        NobitexApi api = new NobitexApi(cfg.token, cfg.apiSecret);
         Strategy strat = Strategy.byId(cfg.strategyId);
         strategyName = strat.name();
 
@@ -594,7 +594,7 @@ public class BotEngine {
     public void forceSell() {
         Prefs.Cfg cfg = prefs.cfg();
         Market m = Market.of(cfg.symbol);
-        NobitexApi api = new NobitexApi(cfg.token);
+        NobitexApi api = new NobitexApi(cfg.token, cfg.apiSecret);
         try {
             if (!prefs.posActive()) return;
             double price = lastPrice > 0 ? lastPrice : api.lastPrice(m.symbol);
