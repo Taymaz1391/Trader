@@ -1,9 +1,9 @@
 === 1) public market data (the bot's data pipeline) ===
-orderbook BTCIRT: bid=1.8557314407E11 ask=1.8586418344E11 last=1.8557314407E11 spread=0.157%
+orderbook BTCIRT: bid=1.8557687558E11 ask=1.8585857685E11 last=1.8557688558E11 spread=0.152%
   OK
-udf history 1h x24: 24 candles, last close=1.8586418344E10
-  OK
-stats BTC/RLS: latest=1.8586418344E11 24h ch=0.44%
+udf history 1h x24: 24 candles, last close=1.8557688558E11 (book last=1.8557688558E11, ratio=1.0000)
+  OK — candles normalized to the orderbook quote unit
+stats BTC/RLS: latest=1.8557688558E11 24h ch=0.28%
   OK
 
 === 2) API-key auth path (Ed25519-signed, random FAKE key) ===
@@ -11,14 +11,14 @@ fake public key : b9kXcekUnOEmegtszaOzxAnjdHzzw5Dn9XkhpVxQs8ElbjteVgsSOD0dk2e3Ro
 fake secret     : q2b+qQG1…(32 bytes)
 mode detected   : API-key (Ed25519)
 server response : ok=false
-❌ خطای نامشخص (HTTP 401)
+❌ احراز هویت رد شد (401) — کلید یا امضا نامعتبر است
 
 راهنما: کلید عمومی و سکرت کی را دقیقاً و کامل کپی کنید؛ کلید باید مجوز READ و TRADE داشته باشد؛ اگر هنگام ساخت کلید «لیست سفید IP» فعال کرده‌اید، گوشی از آن IPها وصل نمی‌شود.
   -> the server REACHED the auth layer and answered (see message above).
 
 === 3) classic token auth path (fake token) ===
 server response : ok=false
-❌ خطای نامشخص (HTTP 401)
+❌ احراز هویت رد شد (401) — کلید یا امضا نامعتبر است
 
 راهنما: توکن کلاسیک را از پنل نوبیتکس (بخش API) کامل کپی کنید. اگر کلید جدید (با سکرت کی) دارید، سکرت کی را در فیلد پایین وارد کنید.
 
