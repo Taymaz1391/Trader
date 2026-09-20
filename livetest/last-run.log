@@ -1,9 +1,9 @@
 === 1) public market data (the bot's data pipeline) ===
-orderbook BTCIRT: bid=1.8557687558E11 ask=1.8585857685E11 last=1.8557688558E11 spread=0.152%
+orderbook BTCIRT: bid=1.8555633327E11 ask=1.859E11 last=1.8555444444E11 spread=0.185%
   OK
-udf history 1h x24: 24 candles, last close=1.8557688558E11 (book last=1.8557688558E11, ratio=1.0000)
+udf history 1h x24: 24 candles, last close=1.8555447773E11 (book last=1.8555444444E11, ratio=1.0000)
   OK — candles normalized to the orderbook quote unit
-stats BTC/RLS: latest=1.8557688558E11 24h ch=0.28%
+stats BTC/RLS: latest=1.8555447773E11 24h ch=0.27%
   OK
 
 === 2) API-key auth path (Ed25519-signed, random FAKE key) ===
