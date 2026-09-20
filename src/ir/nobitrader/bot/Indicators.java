@@ -122,4 +122,77 @@ public final class Indicators {
         }
         return new double[][]{mid, up, lo};
     }
+
+    // ------------------------------------------------------------------
+
+    private static double trueRange(Candle[] cs, int i) {
+        double a = cs[i].h - cs[i].l;
+        double b = Math.abs(cs[i].h - cs[i - 1].c);
+        double c = Math.abs(cs[i].l - cs[i - 1].c);
+        return Math.max(a, Math.max(b, c));
+    }
+
+    private static double[] dirMove(Candle[] cs, int i) {
+        double up = cs[i].h - cs[i - 1].h;
+        double dn = cs[i - 1].l - cs[i].l;
+        double pdm = (up > dn && up > 0) ? up : 0;
+        double mdm = (dn > up && dn > 0) ? dn : 0;
+        return new double[]{pdm, mdm};
+    }
+
+    /** Wilder ATR (average true range); NaN before index n */
+    public static double[] atr(Candle[] cs, int n) {
+        double[] out = new double[cs.length];
+        for (int i = 0; i < cs.length; i++) out[i] = Double.NaN;
+        if (cs.length <= n || n <= 0) return out;
+        double a = 0;
+        for (int i = 1; i <= n; i++) a += trueRange(cs, i);
+        a /= n;
+        out[n] = a;
+        for (int i = n + 1; i < cs.length; i++) {
+            a = (a * (n - 1) + trueRange(cs, i)) / n;
+            out[i] = a;
+        }
+        return out;
+    }
+
+    /** Wilder ADX (trend strength 0-100); NaN before index 2n */
+    public static double[] adx(Candle[] cs, int n) {
+        double[] out = new double[cs.length];
+        for (int i = 0; i < cs.length; i++) out[i] = Double.NaN;
+        if (cs.length <= 2 * n || n <= 0) return out;
+        double trW = 0, pdmW = 0, mdmW = 0;
+        for (int i = 1; i <= n; i++) {
+            double[] dm = dirMove(cs, i);
+            trW += trueRange(cs, i);
+            pdmW += dm[0];
+            mdmW += dm[1];
+        }
+        double adx = Double.NaN;
+        double dxSum = 0;
+        int dxCount = 0;
+        boolean seeded = false;
+        for (int i = n + 1; i < cs.length; i++) {
+            double[] dm = dirMove(cs, i);
+            trW = trW - trW / n + trueRange(cs, i);
+            pdmW = pdmW - pdmW / n + dm[0];
+            mdmW = mdmW - mdmW / n + dm[1];
+            double pdi = trW == 0 ? 0 : 100 * pdmW / trW;
+            double mdi = trW == 0 ? 0 : 100 * mdmW / trW;
+            double dx = (pdi + mdi) == 0 ? 0 : 100 * Math.abs(pdi - mdi) / (pdi + mdi);
+            if (!seeded) {
+                dxSum += dx;
+                dxCount++;
+                if (dxCount == n) {
+                    adx = dxSum / n;
+                    seeded = true;
+                    out[i] = adx;
+                }
+            } else {
+                adx = (adx * (n - 1) + dx) / n;
+                out[i] = adx;
+            }
+        }
+        return out;
+    }
 }

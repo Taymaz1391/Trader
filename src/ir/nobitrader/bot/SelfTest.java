@@ -156,6 +156,60 @@ public class SelfTest {
         check(csv.contains("buy") && csv.contains("sell"), "csv contains both sides");
         check(csv.contains("2023-11-14") && csv.contains("1.9"), "csv values formatted");
 
+        System.out.println("== atr / adx ==");
+        double[] atr = Indicators.atr(cs, 14);
+        double[] adx = Indicators.adx(cs, 14);
+        check(Double.isNaN(atr[10]), "atr warmup NaN");
+        check(atr[cs.length - 1] > 0, "atr positive (" + String.format("%.2f", atr[cs.length - 1]) + ")");
+        check(Double.isNaN(adx[20]), "adx warmup NaN");
+        boolean adxOk = true;
+        for (int i = 55; i < cs.length; i++) {
+            if (Double.isNaN(adx[i]) || adx[i] < 0 || adx[i] > 100) adxOk = false;
+        }
+        check(adxOk, "adx defined and within 0..100 after warmup");
+        check(adx[cs.length - 1] > 0, "adx positive on synthetic trends ("
+                + String.format("%.1f", adx[cs.length - 1]) + ")");
+
+        System.out.println("== atr adaptive stops ==");
+        double[] huge = Backtester.atrStopsPct(100, 100, 4, 8);
+        check(Math.abs(huge[0] - 12.0) < 1e-9, "atr stop clamped at 12% (" + huge[0] + ")");
+        check(Math.abs(huge[1] - 24.0) < 1e-9, "atr tp keeps 2:1 ratio (" + huge[1] + ")");
+        double[] tiny = Backtester.atrStopsPct(0.01, 100, 4, 8);
+        check(Math.abs(tiny[0] - 1.5) < 1e-9, "atr stop floored at 1.5% (" + tiny[0] + ")");
+        double[] mid = Backtester.atrStopsPct(1.6, 100, 4, 8);
+        check(Math.abs(mid[0] - 4.0) < 1e-9, "atr 2.5x => 4% (" + mid[0] + ")");
+        double[] bad = Backtester.atrStopsPct(Double.NaN, 100, 4, 8);
+        check(bad[0] == 4 && bad[1] == 8, "atr NaN falls back to fixed stops");
+        for (int s = 0; s < Strategy.ALL.length; s++) {
+            Backtester.Result ra = Backtester.run(Strategy.ALL[s], cs, 4, 8, 0, 0, 0, true, Backtester.DEFAULT_FEE);
+            check(ra.ok && !Double.isNaN(ra.netPct), Strategy.ALL[s].name() + ": atr-stops backtest completes");
+        }
+
+        System.out.println("== dca backtest ==");
+        check(Market.tfSeconds("15") == 900 && Market.tfSeconds("60") == 3600
+                && Market.tfSeconds("240") == 14400 && Market.tfSeconds("D") == 86400, "tfSeconds mapping");
+
+        Candle[] rise = new Candle[300];
+        for (int i = 0; i < rise.length; i++) {
+            double c = 100 * Math.pow(1.004, i);
+            rise[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
+        }
+        Backtester.Result rd = Backtester.run(Strategy.ALL[0], rise, 90, 25, 0, 12, 0, false, 0.0);
+        check(rd.ok, "dca completes on rising market");
+        check(rd.netPct > 0, "dca profits on steady rise (" + String.format("%.2f", rd.netPct) + "%)");
+        check(rd.netPct < rd.bhPct, "dca below buy&hold on steady rise");
+        check(rd.trades >= 1, "dca exits at least once on rise (" + rd.trades + ")");
+
+        Candle[] fall = new Candle[300];
+        for (int i = 0; i < fall.length; i++) {
+            double c = 100 * Math.pow(0.996, i);
+            fall[i] = new Candle(1_700_000_000L + i * 3600L, c, c * 1.002, c * 0.998, c, 10);
+        }
+        Backtester.Result fd = Backtester.run(Strategy.ALL[0], fall, 90, 1000, 0, 12, 0, false, 0.0);
+        check(fd.ok, "dca completes on falling market");
+        check(fd.netPct > fd.bhPct, "dca loses less than buy&hold on steady fall ("
+                + String.format("%.2f", fd.netPct) + "% vs " + String.format("%.2f", fd.bhPct) + "%)");
+
         System.out.println("== fmt ==");
         check("100,000".equals(Fmt.toman(1_000_001)), "toman rounding + grouping: " + Fmt.toman(1_000_001));
         check("0.5".equals(Fmt.amount(0.5)), "amount 0.5");

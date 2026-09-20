@@ -4,7 +4,6 @@ import android.content.Context;
 import android.content.SharedPreferences;
 
 import org.json.JSONArray;
-import org.json.JSONObject;
 
 /**
  * All persisted configuration + bot state, kept in SharedPreferences as
@@ -30,6 +29,10 @@ public class Prefs {
         public double slPct = 4;
         public double tpPct = 8;
         public double trailingPct = 0;      // trailing stop, 0 = off
+        public boolean atrStops = false;    // ATR-based adaptive SL/TP
+        public boolean dca = false;         // dollar-cost averaging mode
+        public int dcaIntervalCandles = 24; // one ladder every N closed candles
+        public int dcaMaxLadders = 5;       // max ladders per position, 0 = unlimited
         public boolean live = false;
         public String tgToken = "";         // telegram bot token (optional)
         public String tgChat = "";          // telegram chat id (optional)
@@ -46,6 +49,10 @@ public class Prefs {
         c.slPct = (double) sp.getFloat("slPct", 4f);
         c.tpPct = (double) sp.getFloat("tpPct", 8f);
         c.trailingPct = (double) sp.getFloat("trailingPct", 0f);
+        c.atrStops = sp.getBoolean("atrStops", false);
+        c.dca = sp.getBoolean("dca", false);
+        c.dcaIntervalCandles = sp.getInt("dcaIntervalCandles", 24);
+        c.dcaMaxLadders = sp.getInt("dcaMaxLadders", 5);
         c.live = sp.getBoolean("live", false);
         c.tgToken = sp.getString("tgToken", "");
         c.tgChat = sp.getString("tgChat", "");
@@ -63,7 +70,13 @@ public class Prefs {
                 .putFloat("slPct", (float) c.slPct)
                 .putFloat("tpPct", (float) c.tpPct)
                 .putFloat("trailingPct", (float) c.trailingPct)
+                .putBoolean("atrStops", c.atrStops)
+                .putBoolean("dca", c.dca)
+                .putInt("dcaIntervalCandles", c.dcaIntervalCandles)
+                .putInt("dcaMaxLadders", c.dcaMaxLadders)
                 .putBoolean("live", c.live)
+                .putString("tgToken", c.tgToken)
+                .putString("tgChat", c.tgChat)
                 .apply();
     }
 
@@ -77,15 +90,22 @@ public class Prefs {
     public void setSlPct(double v) { sp.edit().putFloat("slPct", (float) v).apply(); }
     public void setTpPct(double v) { sp.edit().putFloat("tpPct", (float) v).apply(); }
     public void setTrailingPct(double v) { sp.edit().putFloat("trailingPct", (float) v).apply(); }
+    public void setAtrStops(boolean v) { sp.edit().putBoolean("atrStops", v).apply(); }
+    public void setDca(boolean v) { sp.edit().putBoolean("dca", v).apply(); }
+    public void setDcaInterval(int v) { sp.edit().putInt("dcaIntervalCandles", v).apply(); }
+    public void setDcaMax(int v) { sp.edit().putInt("dcaMaxLadders", v).apply(); }
     public void setLive(boolean v) { sp.edit().putBoolean("live", v).apply(); }
     public void setTg(String token, String chat) {
-        sp.edit().putString("tgToken", token == null ? "" : token.trim())
-                .putString("tgChat", chat == null ? "" : chat.trim()).apply();
+        sp.edit()
+                .putString("tgToken", token == null ? "" : token.trim())
+                .putString("tgChat", chat == null ? "" : chat.trim())
+                .apply();
     }
 
     // ---------------------------------------------------------------- state
 
     public boolean posActive() { return sp.getBoolean("posActive", false); }
+
     public void setPos(boolean active, double amount, double entry, long time, boolean live) {
         sp.edit()
                 .putBoolean("posActive", active)
@@ -105,11 +125,22 @@ public class Prefs {
     public double posPeak() { return parse(sp.getString("posPeak", "0")); }
     public void setPosPeak(double v) { sp.edit().putString("posPeak", Double.toString(v)).apply(); }
 
+    /** DCA ladder bookkeeping for the open position */
+    public int posLadders() { return sp.getInt("posLadders", 0); }
+    public void setPosLadders(int v) { sp.edit().putInt("posLadders", v).apply(); }
+    public long posLastLadder() { return sp.getLong("posLastLadder", 0); }
+    public void setPosLastLadder(long v) { sp.edit().putLong("posLastLadder", v).apply(); }
+
+    /** whether the bot was running before the device restarted (BootReceiver) */
+    public boolean botWasRunning() { return sp.getBoolean("botWasRunning", false); }
+    public void setBotWasRunning(boolean v) { sp.edit().putBoolean("botWasRunning", v).apply(); }
+
     public double realizedPnl() { return parse(sp.getString("realizedPnl", "0")); }
     public void setRealizedPnl(double v) { sp.edit().putString("realizedPnl", Double.toString(v)).apply(); }
 
     public int tradeCount() { return sp.getInt("tradeCount", 0); }
     public int winCount() { return sp.getInt("winCount", 0); }
+
     public void setTradeStats(int trades, int wins) {
         sp.edit().putInt("tradeCount", trades).putInt("winCount", wins).apply();
     }
@@ -120,6 +151,8 @@ public class Prefs {
     public void resetState() {
         setPos(false, 0, 0, 0, false);
         setPosPeak(0);
+        setPosLadders(0);
+        setPosLastLadder(0);
         setRealizedPnl(0);
         setTradeStats(0, 0);
         setLastTradeTime(0);

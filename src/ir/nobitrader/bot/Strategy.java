@@ -30,12 +30,17 @@ public abstract class Strategy {
         public double[] ema9, ema21, sma50, rsi14;
         public double[] macdLine, macdSig;
         public double[] bbMid, bbUp, bbLo;
+        public double[] atr14, adx14, volSma20;
 
         public static Ctx compute(Candle[] cs) {
             Ctx c = new Ctx();
             int n = cs.length;
             double[] closes = new double[n];
-            for (int i = 0; i < n; i++) closes[i] = cs[i].c;
+            double[] vols = new double[n];
+            for (int i = 0; i < n; i++) {
+                closes[i] = cs[i].c;
+                vols[i] = cs[i].v;
+            }
             c.closes = closes;
             c.ema9 = Indicators.ema(closes, 9);
             c.ema21 = Indicators.ema(closes, 21);
@@ -48,7 +53,22 @@ public abstract class Strategy {
             c.bbMid = b[0];
             c.bbUp = b[1];
             c.bbLo = b[2];
+            c.atr14 = Indicators.atr(cs, 14);
+            c.adx14 = Indicators.adx(cs, 14);
+            c.volSma20 = Indicators.sma(vols, 20);
             return c;
+        }
+
+        /** trend strong enough to trade (NaN-safe) */
+        public static boolean trendOk(double[] adx, int i) {
+            return Double.isNaN(adx[i]) || adx[i] >= 15;
+        }
+
+        /** volume not drying up (NaN-safe) */
+        public static boolean volOk(Candle[] cs, double[] volSma, int i, double ratio) {
+            double v = volSma[i];
+            if (Double.isNaN(v) || v <= 0) return true;
+            return cs[i].v >= ratio * v;
         }
     }
 
@@ -66,8 +86,9 @@ public abstract class Strategy {
             boolean crossUp = ctx.ema9[i - 1] <= ctx.ema21[i - 1] && ctx.ema9[i] > ctx.ema21[i];
             boolean crossDn = ctx.ema9[i - 1] >= ctx.ema21[i - 1] && ctx.ema9[i] < ctx.ema21[i];
             boolean trendUp = ctx.closes[i] > ctx.sma50[i];
-            if (crossUp && trendUp && ctx.rsi14[i] <= 68) {
-                reason = "کراس صعودی EMA9/EMA21 با روند صعودی";
+            boolean strong = Ctx.trendOk(ctx.adx14, i) && Ctx.volOk(cs, ctx.volSma20, i, 0.6);
+            if (crossUp && trendUp && strong && ctx.rsi14[i] <= 68) {
+                reason = "کراس صعودی EMA9/EMA21 با روند صعودی و قدرت کافی";
                 return BUY;
             }
             if (crossDn) {
@@ -136,23 +157,24 @@ public abstract class Strategy {
         public String name() { return "ترکیبی هوشمند (امتیازدهی)"; }
 
         public String desc() {
-            return "امتیازدهی هم‌زمان به روند (EMA و SMA50)، مومنتوم (MACD و RSI) و موقعیت قیمت نسبت به باند بولینگر؛ خرید در عبور امتیاز از ۶ و فروش زیر ۲.";
+            return "امتیازدهی هم‌زمان به روند (EMA و SMA50)، قدرت روند (ADX)، مومنتوم (MACD و RSI)، حجم معاملات و موقعیت قیمت نسبت به باند بولینگر؛ خرید در عبور امتیاز از ۶ و فروش زیر ۲.";
         }
 
-        public int score(int i, Ctx ctx) {
+        public int score(Candle[] cs, int i, Ctx ctx) {
             int s = 0;
             if (ctx.ema9[i] > ctx.ema21[i]) s += 2;
             if (ctx.closes[i] > ctx.sma50[i]) s += 1;
             if (ctx.macdLine[i] > ctx.macdSig[i]) s += 1;
-            if (ctx.closes[i] > ctx.bbMid[i]) s += 1;
+            if (ctx.closes[i] > ctx.bbMid[i]
+                    && Ctx.volOk(cs, ctx.volSma20, i, 0.8)) s += 1;
             if (i >= 2 && ctx.rsi14[i] > ctx.rsi14[i - 2]) s += 1;
             if (ctx.rsi14[i] < 68) s += 1;
             return s;
         }
 
         public int signal(Candle[] cs, int i, Ctx ctx) {
-            int s = score(i, ctx);
-            int sp = score(i - 1, ctx);
+            int s = score(cs, i, ctx);
+            int sp = score(cs, i - 1, ctx);
             if (s >= 6 && sp < 6) {
                 reason = "امتیاز ترکیبی " + s + " از ۷ (عبور از آستانه خرید)";
                 return BUY;

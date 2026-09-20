@@ -61,7 +61,9 @@ public class MainActivity extends Activity {
     private TextView stratDesc, amountHint, liveWarn, analysisView;
     private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit, tgTokenEdit, tgChatEdit;
     private Spinner symbolSpin, tfSpin, intervalSpin, stratSpin;
-    private Switch liveSwitch, trailSwitch;
+    private Switch liveSwitch, trailSwitch, dcaSwitch, atrSwitch;
+    private LinearLayout dcaBox;
+    private Spinner dcaSpin, dcaMaxSpin;
     private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn, csvBtn, tgTestBtn;
     private LinearLayout sellResetRow;
     private ChartView chartView;
@@ -214,7 +216,21 @@ public class MainActivity extends Activity {
         scroll.addView(root, new ViewGroup.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
-        // ---------- header ----------
+        // ---------- header (gradient hero) ----------
+        LinearLayout hero = new LinearLayout(this);
+        hero.setOrientation(LinearLayout.VERTICAL);
+        android.graphics.drawable.GradientDrawable heroBg =
+                new android.graphics.drawable.GradientDrawable(
+                        android.graphics.drawable.GradientDrawable.Orientation.TL_BR,
+                        new int[]{0xFF0E1B33, 0xFF0B1220, 0xFF0E2A26});
+        heroBg.setCornerRadius(dp(20));
+        heroBg.setStroke(dp(1), 0xFF23304A);
+        hero.setBackground(heroBg);
+        hero.setPadding(dp(14), dp(14), dp(14), dp(14));
+        LinearLayout.LayoutParams heroLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        hero.setLayoutParams(heroLp);
+
         LinearLayout head = new LinearLayout(this);
         head.setOrientation(LinearLayout.HORIZONTAL);
         head.setGravity(Gravity.CENTER_VERTICAL);
@@ -234,10 +250,12 @@ public class MainActivity extends Activity {
         pill.setCornerRadius(dp(20));
         statusPill.setBackground(pill);
         head.addView(statusPill);
-        root.addView(head);
+        hero.addView(head);
+        root.addView(hero);
 
         // ---------- market card ----------
         LinearLayout mc = card();
+        mc.addView(text("💰 بازار و قیمت لحظه‌ای", 15f, GOLD, true));
         LinearLayout mrow = row();
         mrow.addView(label("نماد بازار"));
         symbolTitle = text("", 13f, TEXT2, false);
@@ -267,14 +285,14 @@ public class MainActivity extends Activity {
 
         // ---------- chart card ----------
         LinearLayout chc = card();
-        chc.addView(text("نمودار قیمت و تحلیل لحظه‌ای", 15f, GOLD, true));
+        chc.addView(text("🕯️ نمودار و تحلیل لحظه‌ای", 15f, GOLD, true));
         chartView = new ChartView(this);
         LinearLayout.LayoutParams cvLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cvLp.topMargin = dp(8);
         chartView.setLayoutParams(cvLp);
         chc.addView(chartView);
-        analysisView = text("خط طلایی: EMA21 — خط‌چین: قیمت ورود شما", 12f, TEXT2, false);
+        analysisView = text("خط طلایی: EMA21 — میله‌های پایین: حجم معاملات — خط‌چین: قیمت ورود شما", 12f, TEXT2, false);
         chc.addView(margin(analysisView, 6));
         root.addView(chc);
 
@@ -289,7 +307,7 @@ public class MainActivity extends Activity {
 
         // ---------- position card ----------
         LinearLayout pc = card();
-        pc.addView(text("وضعیت و پوزیشن", 15f, GOLD, true));
+        pc.addView(text("💼 وضعیت و پوزیشن", 15f, GOLD, true));
         posView = text("در انتظار سیگنال خرید…", 14f, TEXT, false);
         posView.setLineSpacing(dp(3), 1f);
         pc.addView(margin(posView, 8));
@@ -318,7 +336,7 @@ public class MainActivity extends Activity {
 
         // ---------- settings card ----------
         LinearLayout sc = card();
-        sc.addView(text("تنظیمات ربات", 15f, GOLD, true));
+        sc.addView(text("⚙️ تنظیمات ربات", 15f, GOLD, true));
 
         sc.addView(margin(label("بازه کندل (تایم‌فریم)"), 10));
         tfSpin = new Spinner(this);
@@ -379,6 +397,17 @@ public class MainActivity extends Activity {
         slRow.addView(tpCol, tpLp);
         sc.addView(slRow);
 
+        // ATR adaptive stops
+        LinearLayout atrHead = row();
+        LinearLayout atrCol = new LinearLayout(this);
+        atrCol.setOrientation(LinearLayout.VERTICAL);
+        atrCol.addView(text("حد ضرر/سود تطبیقی با نوسان (ATR)", 14f, TEXT, true));
+        atrCol.addView(text("در بازار پرنوسان حد ضرر بازتر، در بازار آرام‌تر سفت‌تر می‌شود", 11f, TEXT2, false));
+        atrHead.addView(atrCol, new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        atrSwitch = new Switch(this);
+        atrHead.addView(atrSwitch);
+        sc.addView(margin(atrHead, 12));
+
         // trailing stop
         LinearLayout trHead = row();
         trHead.addView(text("حد ضرر متحرک", 15f, TEXT, true),
@@ -389,6 +418,40 @@ public class MainActivity extends Activity {
         trailEdit = numberInput("مثلاً 3 (درصد)");
         trailEdit.setVisibility(View.GONE);
         sc.addView(trailEdit);
+
+        // DCA section
+        LinearLayout dcaHead = row();
+        dcaHead.addView(text("خرید پله‌ای (DCA)", 15f, TEXT, true),
+                new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        dcaSwitch = new Switch(this);
+        dcaHead.addView(dcaSwitch);
+        sc.addView(margin(dcaHead, 12));
+
+        dcaBox = new LinearLayout(this);
+        dcaBox.setOrientation(LinearLayout.VERTICAL);
+        dcaBox.addView(margin(label("فاصله بین پله‌ها"), 8));
+        dcaSpin = new Spinner(this);
+        ArrayAdapter<String> dcaAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"هر ۴ کندل", "هر ۱۲ کندل", "هر ۲۴ کندل", "هر ۴۸ کندل"});
+        dcaAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        dcaSpin.setAdapter(dcaAd);
+        dcaSpin.setLayoutParams(spinnerLp());
+        dcaBox.addView(dcaSpin);
+        dcaBox.addView(margin(label("حداکثر پله در هر پوزیشن"), 10));
+        dcaMaxSpin = new Spinner(this);
+        ArrayAdapter<String> dcaMaxAd = new ArrayAdapter<String>(this,
+                android.R.layout.simple_spinner_item,
+                new String[]{"۳ پله", "۵ پله", "۱۰ پله", "بدون محدودیت"});
+        dcaMaxAd.setDropDownViewResource(android.R.layout.simple_spinner_dropdown_item);
+        dcaMaxSpin.setAdapter(dcaMaxAd);
+        dcaMaxSpin.setLayoutParams(spinnerLp());
+        dcaBox.addView(dcaMaxSpin);
+        TextView dcaHint = text("در این حالت ربات به‌جای انتظار برای سیگنال، در فواصل منظم خرید می‌کند؛ قیمت ورود میانگینِ وزنی پله‌ها می‌شود و خروج طبق حد ضرر/سود، حد ضرر متحرک یا سیگنال فروش انجام می‌شود.", 11f, TEXT2, false);
+        dcaHint.setLineSpacing(dp(2), 1f);
+        dcaBox.addView(margin(dcaHint, 6));
+        dcaBox.setVisibility(View.GONE);
+        sc.addView(dcaBox);
 
         sc.addView(margin(vline(), 12));
         LinearLayout liveRow = row();
@@ -433,7 +496,7 @@ public class MainActivity extends Activity {
 
         // ---------- account card ----------
         LinearLayout ac = card();
-        ac.addView(text("اتصال به حساب نوبیتکس", 15f, GOLD, true));
+        ac.addView(text("🔑 اتصال به حساب نوبیتکس", 15f, GOLD, true));
         ac.addView(margin(label("توکن API"), 10));
         tokenEdit = new EditText(this);
         tokenEdit.setHint("توکن را از پنل نوبیتکس (بخش API) بسازید");
@@ -458,7 +521,7 @@ public class MainActivity extends Activity {
 
         // ---------- backtest card ----------
         LinearLayout bc = card();
-        bc.addView(text("بک‌تست استراتژی‌ها", 15f, GOLD, true));
+        bc.addView(text("🧪 بک‌تست استراتژی‌ها", 15f, GOLD, true));
         backtestBtn = button("اجرای بک‌تست روی داده تاریخی", 0xFF2A3752);
         backtestBtn.setTextColor(TEXT);
         LinearLayout.LayoutParams bbLp = new LinearLayout.LayoutParams(
@@ -473,7 +536,7 @@ public class MainActivity extends Activity {
 
         // ---------- log card ----------
         LinearLayout lc = card();
-        lc.addView(text("گزارش رویدادها و معاملات", 15f, GOLD, true));
+        lc.addView(text("📋 گزارش و معاملات", 15f, GOLD, true));
         logView = text("هنوز رخدادی ثبت نشده است.", 12f, TEXT2, false);
         logView.setLineSpacing(dp(3), 1f);
         LinearLayout.LayoutParams lvLp = new LinearLayout.LayoutParams(
@@ -491,7 +554,7 @@ public class MainActivity extends Activity {
         root.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.2 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.3 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -642,6 +705,13 @@ public class MainActivity extends Activity {
             }
         });
 
+        dcaSwitch.setOnCheckedChangeListener(new CompoundButton.OnCheckedChangeListener() {
+            @Override
+            public void onCheckedChanged(CompoundButton buttonView, boolean isChecked) {
+                dcaBox.setVisibility(isChecked ? View.VISIBLE : View.GONE);
+            }
+        });
+
         tgTestBtn.setOnClickListener(new View.OnClickListener() {
             @Override
             public void onClick(View v) {
@@ -781,6 +851,7 @@ public class MainActivity extends Activity {
         }
         Store.log("راه‌اندازی ربات: " + Market.of(cfg.symbol).title
                 + " | استراتژی: " + Strategy.byId(cfg.strategyId).name()
+                + (cfg.dca ? " + خرید پله‌ای" : "")
                 + " | تایم‌فریم: " + tfName(cfg.resolution)
                 + " | حالت: " + (cfg.live ? "واقعی ⚡" : "شبیه‌سازی"));
         BotService.start(this);
@@ -822,6 +893,10 @@ public class MainActivity extends Activity {
         prefs.setSlPct(sl);
         prefs.setTpPct(tp);
         prefs.setTrailingPct(trail);
+        prefs.setAtrStops(atrSwitch.isChecked());
+        prefs.setDca(dcaSwitch.isChecked());
+        prefs.setDcaInterval(new int[]{4, 12, 24, 48}[dcaSpin.getSelectedItemPosition()]);
+        prefs.setDcaMax(new int[]{3, 5, 10, 0}[dcaMaxSpin.getSelectedItemPosition()]);
         prefs.setLive(live);
         return true;
     }
@@ -846,6 +921,21 @@ public class MainActivity extends Activity {
         trailEdit.setVisibility(c.trailingPct > 0 ? View.VISIBLE : View.GONE);
         tgTokenEdit.setText(c.tgToken);
         tgChatEdit.setText(c.tgChat);
+        atrSwitch.setChecked(c.atrStops);
+        dcaSwitch.setChecked(c.dca);
+        dcaBox.setVisibility(c.dca ? View.VISIBLE : View.GONE);
+        int[] dcaI = {4, 12, 24, 48};
+        int dcaPos = 2;
+        for (int i = 0; i < dcaI.length; i++) {
+            if (dcaI[i] == c.dcaIntervalCandles) dcaPos = i;
+        }
+        dcaSpin.setSelection(dcaPos, false);
+        int[] dcaM = {3, 5, 10, 0};
+        int dcaMaxPos = 1;
+        for (int i = 0; i < dcaM.length; i++) {
+            if (dcaM[i] == c.dcaMaxLadders) dcaMaxPos = i;
+        }
+        dcaMaxSpin.setSelection(dcaMaxPos, false);
         String[] tfs = {"15", "60", "240", "D"};
         for (int i = 0; i < tfs.length; i++) {
             if (tfs[i].equals(c.resolution)) tfSpin.setSelection(i, false);
@@ -923,17 +1013,24 @@ public class MainActivity extends Activity {
                     sb.append("📊 نتیجه بک‌تست روی ").append(cs.length).append(" کندل ").append(tfName(cfg.resolution)).append(" (")
                             .append(m.title).append(")\n");
                     sb.append("حد ضرر ").append(Fmt.pct(-cfg.slPct)).append(" | حد سود ").append(Fmt.pct(cfg.tpPct));
+                    if (cfg.atrStops) {
+                        sb.append(" | حد ضرر تطبیقی ATR");
+                    }
                     if (cfg.trailingPct > 0) {
                         sb.append(" | حد ضرر متحرک ").append(fmtNum(cfg.trailingPct)).append("٪");
+                    }
+                    if (cfg.dca) {
+                        sb.append(" | خرید پله‌ای هر ").append(cfg.dcaIntervalCandles).append(" کندل");
                     }
                     sb.append(" | کارمزد تقریبی ۰.۲۵٪\n\n");
                     Backtester.Result best = null;
                     for (int s = 0; s < Strategy.ALL.length; s++) {
                         Backtester.Result r = Backtester.run(Strategy.ALL[s], cs, cfg.slPct, cfg.tpPct,
-                                cfg.trailingPct, Backtester.DEFAULT_FEE);
+                                cfg.trailingPct, cfg.dca ? cfg.dcaIntervalCandles : 0,
+                                cfg.dca ? cfg.dcaMaxLadders : 0, cfg.atrStops, Backtester.DEFAULT_FEE);
                         if (!r.ok) continue;
                         if (best == null || r.netPct > best.netPct) best = r;
-                        sb.append("• ").append(Strategy.ALL[s].name()).append('\n');
+                        sb.append("• ").append(r.name).append('\n');
                         sb.append("   بازده: ").append(Fmt.pct(r.netPct))
                                 .append("  |  خرید و نگهداری: ").append(Fmt.pct(r.bhPct)).append('\n');
                         sb.append("   معاملات: ").append(r.trades)
@@ -1009,25 +1106,34 @@ public class MainActivity extends Activity {
                     final Candle[] f = cs;
                     int n = f.length;
                     Strategy.Ctx ctx = Strategy.Ctx.compute(f);
-                    int from = Math.max(0, n - 120);
-                    final double[] closes = new double[n - from];
-                    final double[] ema = new double[n - from];
+                    int from = Math.max(0, n - 80);
+                    int len = n - from;
+                    final Candle[] sub = new Candle[len];
+                    final double[] ema = new double[len];
                     for (int i = from; i < n; i++) {
-                        closes[i - from] = f[i].c;
+                        sub[i - from] = f[i];
                         ema[i - from] = ctx.ema21[i];
                     }
                     final double lastP = f[n - 1].c;
                     boolean upTrend = ctx.ema9[n - 1] > ctx.ema21[n - 1];
-                    int score = new Strategy.ComboScore().score(n - 1, ctx);
-                    final String analysis = "RSI: " + String.format(Locale.US, "%.1f", ctx.rsi14[n - 1])
-                            + "   |   روند: " + (upTrend ? "صعودی 📈" : "نزولی 📉")
-                            + "   |   امتیاز ترکیبی: " + score + "/۷";
+                    int score = new Strategy.ComboScore().score(f, n - 1, ctx);
+                    StringBuilder an = new StringBuilder();
+                    an.append("RSI: ").append(String.format(Locale.US, "%.1f", ctx.rsi14[n - 1]));
+                    if (!Double.isNaN(ctx.adx14[n - 1])) {
+                        an.append("   |   قدرت روند (ADX): ").append(String.format(Locale.US, "%.0f", ctx.adx14[n - 1]));
+                    }
+                    if (!Double.isNaN(ctx.atr14[n - 1]) && lastP > 0) {
+                        an.append("   |   نوسان (ATR): ").append(String.format(Locale.US, "%.1f", ctx.atr14[n - 1] / lastP * 100.0)).append("٪");
+                    }
+                    an.append("\nروند: ").append(upTrend ? "صعودی 📈" : "نزولی 📉")
+                            .append("   |   امتیاز ترکیبی: ").append(score).append("/۷");
+                    final String analysis = an.toString();
                     final double entry = prefs.posActive() ? prefs.posEntry() : 0;
                     final String label = Fmt.quote(lastP, m.isRls);
                     postUi(new Runnable() {
                         @Override
                         public void run() {
-                            chartView.setData(closes, ema, lastP, entry, label);
+                            chartView.setData(sub, ema, entry, label);
                             analysisView.setText(analysis);
                         }
                     });
@@ -1048,6 +1154,12 @@ public class MainActivity extends Activity {
         boolean run = engine.isRunning();
         statusPill.setText(run ? "● در حال اجرا" : (engine.lastError.isEmpty() ? "● متوقف" : "● خطا"));
         statusPill.setTextColor(run ? GREEN : TEXT2);
+        android.graphics.drawable.GradientDrawable pillBg =
+                new android.graphics.drawable.GradientDrawable();
+        pillBg.setColor(run ? 0x3316C784 : 0xFF1B2334);
+        pillBg.setCornerRadius(dp(20));
+        pillBg.setStroke(dp(1), run ? 0x5516C784 : STROKE);
+        statusPill.setBackground(pillBg);
         startBtn.setText(run ? "■  توقف ربات" : "▶  شروع ربات");
         try {
             startBtn.getBackground().setTint(run ? RED : GREEN);
@@ -1072,7 +1184,10 @@ public class MainActivity extends Activity {
             StringBuilder sb = new StringBuilder();
             sb.append("📌 در پوزیشن ").append(prefs.posLive() ? "واقعی ⚡" : "شبیه‌سازی").append('\n');
             sb.append("مقدار: ").append(Fmt.amount(amount)).append(' ').append(Market.coinName(m.src)).append('\n');
-            sb.append("قیمت ورود: ").append(Fmt.quote(entry, m.isRls)).append('\n');
+            int ladders = prefs.posLadders();
+            sb.append(ladders > 1 ? "قیمت میانگین ورود: " : "قیمت ورود: ")
+                    .append(Fmt.quote(entry, m.isRls)).append('\n');
+            if (ladders > 1) sb.append("پله‌های خرید: ").append(ladders).append('\n');
             if (cfg.trailingPct > 0) {
                 double peak = prefs.posPeak();
                 if (peak > 0) sb.append("اوج پس از ورود: ").append(Fmt.quote(peak, m.isRls)).append('\n');
@@ -1089,7 +1204,9 @@ public class MainActivity extends Activity {
         sellResetRow.setVisibility(inPos ? View.VISIBLE : View.GONE);
         chartView.updateEntry(inPos ? prefs.posEntry() : 0);
 
-        statsView.setText("سود تحقق‌یافته: " + Fmt.quote(prefs.realizedPnl(), m.isRls) + " " + m.quoteUnit()
+        double realized = prefs.realizedPnl();
+        statsView.setTextColor(realized > 0 ? GREEN : (realized < 0 ? RED : TEXT2));
+        statsView.setText("سود تحقق‌یافته: " + Fmt.quote(realized, m.isRls) + " " + m.quoteUnit()
                 + "   |   معاملات: " + prefs.tradeCount()
                 + "   |   برد: " + prefs.winCount()
                 + (engine.lastCheck > 0 ? "\nآخرین بررسی: " + Fmt.time(engine.lastCheck / 1000L) : ""));

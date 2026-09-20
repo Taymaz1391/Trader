@@ -66,4 +66,12 @@ public class Market {
         for (int i = 0; i < SYMBOLS.length; i++) out[i] = of(SYMBOLS[i]).title;
         return out;
     }
+
+    /** candle timeframe length in seconds */
+    public static long tfSeconds(String resolution) {
+        if ("15".equals(resolution)) return 900;
+        if ("240".equals(resolution)) return 14400;
+        if ("D".equals(resolution)) return 86400;
+        return 3600;
+    }
 }
