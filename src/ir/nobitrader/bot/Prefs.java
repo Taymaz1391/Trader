@@ -31,6 +31,8 @@ public class Prefs {
         public double tpPct = 8;
         public double trailingPct = 0;      // trailing stop, 0 = off
         public boolean live = false;
+        public String tgToken = "";         // telegram bot token (optional)
+        public String tgChat = "";          // telegram chat id (optional)
     }
 
     public Cfg cfg() {
@@ -45,6 +47,8 @@ public class Prefs {
         c.tpPct = (double) sp.getFloat("tpPct", 8f);
         c.trailingPct = (double) sp.getFloat("trailingPct", 0f);
         c.live = sp.getBoolean("live", false);
+        c.tgToken = sp.getString("tgToken", "");
+        c.tgChat = sp.getString("tgChat", "");
         return c;
     }
 
@@ -74,6 +78,10 @@ public class Prefs {
     public void setTpPct(double v) { sp.edit().putFloat("tpPct", (float) v).apply(); }
     public void setTrailingPct(double v) { sp.edit().putFloat("trailingPct", (float) v).apply(); }
     public void setLive(boolean v) { sp.edit().putBoolean("live", v).apply(); }
+    public void setTg(String token, String chat) {
+        sp.edit().putString("tgToken", token == null ? "" : token.trim())
+                .putString("tgChat", chat == null ? "" : chat.trim()).apply();
+    }
 
     // ---------------------------------------------------------------- state
 

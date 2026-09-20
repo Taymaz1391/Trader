@@ -4,6 +4,7 @@ import android.Manifest;
 import android.app.Activity;
 import android.app.AlertDialog;
 import android.content.DialogInterface;
+import android.content.Intent;
 import android.content.pm.PackageManager;
 import android.graphics.Typeface;
 import android.os.Build;
@@ -58,10 +59,10 @@ public class MainActivity extends Activity {
     private TextView statusPill, priceView, changeView, symbolTitle;
     private TextView walletView, posView, statsView, logView, backtestView;
     private TextView stratDesc, amountHint, liveWarn, analysisView;
-    private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit;
+    private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit, tgTokenEdit, tgChatEdit;
     private Spinner symbolSpin, tfSpin, intervalSpin, stratSpin;
     private Switch liveSwitch, trailSwitch;
-    private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn;
+    private Button startBtn, connectBtn, backtestBtn, sellBtn, resetBtn, csvBtn, tgTestBtn;
     private LinearLayout sellResetRow;
     private ChartView chartView;
 
@@ -400,6 +401,34 @@ public class MainActivity extends Activity {
         liveWarn = text("⚠️ در این حالت سفارش‌های واقعی در حساب نوبیتکس شما ثبت می‌شود!", 12f, RED, false);
         liveWarn.setVisibility(View.GONE);
         sc.addView(margin(liveWarn, 4));
+
+        // --- telegram section ---
+        sc.addView(margin(vline(), 12));
+        sc.addView(text("اعلان تلگرام (اختیاری)", 14f, GOLD, true));
+        sc.addView(margin(label("توکن ربات تلگرام — از @BotFather بگیرید"), 8));
+        tgTokenEdit = new EditText(this);
+        tgTokenEdit.setHint("123456:ABC-DEF...");
+        tgTokenEdit.setTextSize(14f);
+        tgTokenEdit.setTextColor(TEXT);
+        tgTokenEdit.setHintTextColor(TEXT2);
+        sc.addView(tgTokenEdit);
+        sc.addView(margin(label("شناسه چت — از @userinfobot بگیرید"), 8));
+        tgChatEdit = new EditText(this);
+        tgChatEdit.setHint("123456789");
+        tgChatEdit.setTextSize(14f);
+        tgChatEdit.setTextColor(TEXT);
+        tgChatEdit.setHintTextColor(TEXT2);
+        tgChatEdit.setInputType(InputType.TYPE_CLASS_NUMBER);
+        sc.addView(tgChatEdit);
+        tgTestBtn = button("ارسال پیام آزمایشی", 0xFF2A3752);
+        tgTestBtn.setTextColor(TEXT);
+        LinearLayout.LayoutParams tgLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        tgLp.topMargin = dp(8);
+        tgTestBtn.setLayoutParams(tgLp);
+        sc.addView(tgTestBtn);
+        TextView tgHint = text("با فعال بودن VPN، پیام خرید/فروش و روشن/خاموش شدن ربات برایتان ارسال می‌شود.", 11f, TEXT2, false);
+        sc.addView(margin(tgHint, 6));
         root.addView(sc);
 
         // ---------- account card ----------
@@ -452,10 +481,17 @@ public class MainActivity extends Activity {
         lvLp.topMargin = dp(8);
         logView.setLayoutParams(lvLp);
         lc.addView(logView);
+        csvBtn = button("📄 خروجی CSV معاملات", 0xFF2A3752);
+        csvBtn.setTextColor(TEXT);
+        LinearLayout.LayoutParams csvLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        csvLp.topMargin = dp(10);
+        csvBtn.setLayoutParams(csvLp);
+        lc.addView(csvBtn);
         root.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.1 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.2 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -605,6 +641,88 @@ public class MainActivity extends Activity {
                 }
             }
         });
+
+        tgTestBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                testTelegram();
+            }
+        });
+
+        csvBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                exportCsv();
+            }
+        });
+    }
+
+    /** save + verify the telegram settings by sending a test message */
+    private void testTelegram() {
+        final String token = tgTokenEdit.getText().toString().trim();
+        final String chat = tgChatEdit.getText().toString().trim();
+        if (token.isEmpty() || chat.isEmpty()) {
+            toast("توکن ربات و شناسه چت را وارد کنید");
+            return;
+        }
+        prefs.setTg(token, chat);
+        tgTestBtn.setEnabled(false);
+        toast("در حال ارسال پیام آزمایشی…");
+        startThread(new Runnable() {
+            @Override
+            public void run() {
+                final boolean ok = Telegram.send(token, chat,
+                        "✅ پیام آزمایشی ربات تریدر نوبیتکس — اتصال برقرار است.");
+                postUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        tgTestBtn.setEnabled(true);
+                        toast(ok ? "پیام تلگرام ارسال شد ✅" : "ارسال ناموفق — توکن/چت/اینترنت (VPN) را بررسی کنید");
+                    }
+                });
+            }
+        });
+    }
+
+    /** share the trade journal as a real .csv file (Downloads) or as text on old devices */
+    private void exportCsv() {
+        String csv = Store.csv();
+        if (csv == null || csv.split("\n").length < 2) {
+            toast("هنوز معامله‌ای ثبت نشده است");
+            return;
+        }
+        try {
+            String name = "NobiTrader-trades-" +
+                    new java.text.SimpleDateFormat("yyyyMMdd-HHmm", Locale.US).format(new java.util.Date())
+                    + ".csv";
+            if (Build.VERSION.SDK_INT >= 29) {
+                android.content.ContentValues cv = new android.content.ContentValues();
+                cv.put(android.provider.MediaStore.Downloads.DISPLAY_NAME, name);
+                cv.put(android.provider.MediaStore.Downloads.MIME_TYPE, "text/csv");
+                android.net.Uri uri = getContentResolver().insert(
+                        android.provider.MediaStore.Downloads.EXTERNAL_CONTENT_URI, cv);
+                if (uri != null) {
+                    java.io.OutputStream os = getContentResolver().openOutputStream(uri);
+                    os.write(csv.getBytes("UTF-8"));
+                    os.flush();
+                    os.close();
+                    Intent share = new Intent(Intent.ACTION_SEND);
+                    share.setType("text/csv");
+                    share.putExtra(Intent.EXTRA_STREAM, uri);
+                    share.addFlags(Intent.FLAG_GRANT_READ_URI_PERMISSION);
+                    startActivity(Intent.createChooser(share, "اشتراک فایل CSV"));
+                    toast("فایل " + name + " در پوشه Downloads ذخیره شد");
+                    return;
+                }
+            }
+            Intent share = new Intent(Intent.ACTION_SEND);
+            share.setType("text/plain");
+            share.putExtra(Intent.EXTRA_SUBJECT, name);
+            share.putExtra(Intent.EXTRA_TEXT, csv);
+            startActivity(Intent.createChooser(share, "اشتراک گزارش معاملات"));
+        } catch (Exception e) {
+            toast("خطا در ساخت فایل: " + e.getMessage());
+        }
     }
 
     private void confirmLive() {
@@ -726,6 +844,8 @@ public class MainActivity extends Activity {
         trailSwitch.setChecked(c.trailingPct > 0);
         trailEdit.setText(c.trailingPct > 0 ? fmtNum(c.trailingPct) : "");
         trailEdit.setVisibility(c.trailingPct > 0 ? View.VISIBLE : View.GONE);
+        tgTokenEdit.setText(c.tgToken);
+        tgChatEdit.setText(c.tgChat);
         String[] tfs = {"15", "60", "240", "D"};
         for (int i = 0; i < tfs.length; i++) {
             if (tfs[i].equals(c.resolution)) tfSpin.setSelection(i, false);
@@ -857,6 +977,7 @@ public class MainActivity extends Activity {
                         engine.dayChangePct = st.changePct();
                     } catch (Exception ignored) {
                     }
+                    WidgetProvider.push(MainActivity.this);
                 } catch (Exception ignored) {
                 } finally {
                     priceBusy = false;

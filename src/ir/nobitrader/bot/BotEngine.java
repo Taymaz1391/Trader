@@ -54,6 +54,10 @@ public class BotEngine {
         }, "bot-engine");
         worker.start();
         Store.log("🤖 ربات روشن شد (" + (prefs.cfg().live ? "معامله واقعی ⚡" : "حالت شبیه‌سازی") + ")");
+        Prefs.Cfg c = prefs.cfg();
+        sendTg(c, "🤖 ربات تریدر روشن شد (" + (c.live ? "معامله واقعی ⚡" : "شبیه‌سازی") + ")\n"
+                + Market.of(c.symbol).title + " | " + Strategy.byId(c.strategyId).name());
+        WidgetProvider.push(ctx);
     }
 
     public synchronized void stop() {
@@ -63,6 +67,19 @@ public class BotEngine {
             worker = null;
         }
         Store.log("⛔ ربات متوقف شد");
+        sendTg(prefs.cfg(), "⛔ ربات تریدر متوقف شد");
+        WidgetProvider.push(ctx);
+    }
+
+    /** async telegram message; no-op when not configured */
+    private void sendTg(final Prefs.Cfg cfg, final String msg) {
+        if (cfg.tgToken.isEmpty() || cfg.tgChat.isEmpty()) return;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                Telegram.send(cfg.tgToken, cfg.tgChat, msg);
+            }
+        }).start();
     }
 
     private void loop() {
@@ -219,6 +236,9 @@ public class BotEngine {
                     Fmt.amount(amount) + " " + Market.coinName(m.src)
                             + " × " + Fmt.quote(price, m.isRls) + " " + m.quoteUnit());
         }
+        sendTg(cfg, "🟢 خرید " + Fmt.amount(amount) + " " + Market.coinName(m.src)
+                + " در " + Fmt.quote(price, m.isRls) + " " + m.quoteUnit()
+                + (cfg.live ? " ⚡" : " (شبیه‌سازی)"));
         notifyStatus();
     }
 
@@ -264,6 +284,10 @@ public class BotEngine {
                             + " — نتیجه: " + Fmt.quote(pnl, m.isRls) + " " + m.quoteUnit()
                             + " (" + Fmt.pct(pnlPct) + ")");
         }
+        sendTg(cfg, "🔴 فروش " + Fmt.amount(amount) + " " + Market.coinName(m.src)
+                + " در " + Fmt.quote(price, m.isRls) + " " + m.quoteUnit()
+                + " — نتیجه: " + Fmt.quote(pnl, m.isRls) + " " + m.quoteUnit()
+                + " (" + Fmt.pct(pnlPct) + ")" + (wasLive ? " ⚡" : " (شبیه‌سازی)"));
         notifyStatus();
     }
 
@@ -310,6 +334,7 @@ public class BotEngine {
     private void notifyStatus() {
         try {
             BotService.postStatus(ctx);
+            WidgetProvider.push(ctx);
         } catch (Throwable ignored) {
         }
     }

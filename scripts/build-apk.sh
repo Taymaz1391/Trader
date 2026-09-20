@@ -12,7 +12,7 @@ set -euo pipefail
 ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 cd "$ROOT"
 
-OUT_NAME="${OUT_NAME:-NobiTrader-v1.1.apk}"
+OUT_NAME="${OUT_NAME:-NobiTrader-v1.2.apk}"
 BUILD=build
 OUT=release
 
@@ -33,6 +33,9 @@ if [ -n "${BT:-}" ]; then
   JAVA8="${JAVA8_OVERRIDE:-java}"
 fi
 
+# we bundle org/json (JSON-java) in src/org/json; the platform jar copy is
+# stripped after the build dirs are created (see below)
+
 echo "== toolchain =="
 echo "aapt2:   $AAPT2"
 echo "javac:   $JAVAC"
@@ -43,6 +46,13 @@ echo "platform: $PLATFORM"
 rm -rf "$BUILD" "$OUT"
 mkdir -p "$BUILD" "$OUT" "$BUILD/gen" "$BUILD/classes" "$BUILD/dex"
 
+# strip org/json from the platform jar so javac never mixes our bundled
+# JSON-java sources with the binary copies inside the platform
+PLATFORM_JAR="$ROOT/$BUILD/platform-android.jar"
+cp "$PLATFORM" "$PLATFORM_JAR"
+zip -q -d "$PLATFORM_JAR" 'org/json/*' || true
+PLATFORM="$PLATFORM_JAR"
+
 echo "== [1/6] compile resources (aapt2) =="
 "$AAPT2" compile --dir res -o "$BUILD/res.zip"
 
@@ -50,7 +60,7 @@ echo "== [2/6] link resources (aapt2) =="
 "$AAPT2" link -o "$BUILD/app-base.apk" -I "$PLATFORM" \
   --manifest AndroidManifest.xml \
   --min-sdk-version 24 --target-sdk-version 33 \
-  --version-code 2 --version-name 1.1 \
+  --version-code 3 --version-name 1.2 \
   --java "$BUILD/gen" \
   "$BUILD/res.zip"
 

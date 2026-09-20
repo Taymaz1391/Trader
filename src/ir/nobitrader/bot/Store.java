@@ -109,4 +109,20 @@ public class Store {
         }
         return sb.toString();
     }
+
+    /** full trade journal as CSV (latin digits, newest last) */
+    public static synchronized String csv() {
+        SimpleDateFormat f = new SimpleDateFormat("yyyy-MM-dd HH:mm:ss", Locale.US);
+        StringBuilder sb = new StringBuilder("time,side,price,amount,pnl,pnlPct,live\n");
+        for (JSONObject t : trades) {
+            sb.append(f.format(new Date(t.optLong("time", 0)))).append(',')
+                    .append(t.optString("side", "")).append(',')
+                    .append(t.optDouble("price", 0)).append(',')
+                    .append(t.optDouble("amount", 0)).append(',');
+            sb.append(t.has("pnl") && !t.isNull("pnl") ? String.valueOf(t.optDouble("pnl", 0)) : "").append(',');
+            sb.append(t.has("pnlPct") && !t.isNull("pnlPct") ? String.valueOf(t.optDouble("pnlPct", 0)) : "").append(',');
+            sb.append(t.optBoolean("live")).append('\n');
+        }
+        return sb.toString();
+    }
 }

@@ -1,5 +1,7 @@
 package ir.nobitrader.bot;
 
+import org.json.JSONObject;
+
 import java.util.Random;
 
 /**
@@ -19,7 +21,7 @@ public class SelfTest {
         }
     }
 
-    public static void main(String[] args) {
+    public static void main(String[] args) throws Exception {
         System.out.println("== indicators ==");
         double[] p = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10};
         double[] sma = Indicators.sma(p, 3);
@@ -129,6 +131,30 @@ public class SelfTest {
             if (!a.ok || !b.ok || b.trades < a.trades) trailOk = false;
         }
         check(trailOk, "trailing never reduces trade count across all strategies");
+
+        System.out.println("== csv export ==");
+        Store.clear();
+        JSONObject tb = new JSONObject();
+        tb.put("time", 1_700_000_000_000L);
+        tb.put("side", "buy");
+        tb.put("price", 100.0);
+        tb.put("amount", 0.5);
+        tb.put("live", false);
+        Store.trade(tb);
+        JSONObject ts = new JSONObject();
+        ts.put("time", 1_700_003_600_000L);
+        ts.put("side", "sell");
+        ts.put("price", 104.0);
+        ts.put("amount", 0.5);
+        ts.put("pnl", 1.9);
+        ts.put("pnlPct", 4.0);
+        ts.put("live", true);
+        Store.trade(ts);
+        String csv = Store.csv();
+        check(csv.startsWith("time,side,price,amount,pnl,pnlPct,live"), "csv header");
+        check(csv.split("\n").length == 3, "csv has 1 header + 2 rows");
+        check(csv.contains("buy") && csv.contains("sell"), "csv contains both sides");
+        check(csv.contains("2023-11-14") && csv.contains("1.9"), "csv values formatted");
 
         System.out.println("== fmt ==");
         check("100,000".equals(Fmt.toman(1_000_001)), "toman rounding + grouping: " + Fmt.toman(1_000_001));

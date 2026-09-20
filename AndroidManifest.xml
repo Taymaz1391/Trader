@@ -29,5 +29,17 @@
         <service
             android:name=".BotService"
             android:exported="false"/>
+
+        <receiver
+            android:name=".WidgetProvider"
+            android:exported="true"
+            android:label="ربات تریدر نوبیتکس">
+            <intent-filter>
+                <action android:name="android.appwidget.action.APPWIDGET_UPDATE"/>
+            </intent-filter>
+            <meta-data
+                android:name="android.appwidget.provider"
+                android:resource="@xml/nobitrader_widget_info"/>
+        </receiver>
     </application>
 </manifest>
