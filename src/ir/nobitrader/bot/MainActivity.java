@@ -2175,11 +2175,13 @@ public class MainActivity extends Activity {
             } catch (Throwable ignored) {
             }
         }
+        final String repairedKey = key;
+        final String repairedSec = sec;
         new Thread(new Runnable() {
             @Override
             public void run() {
                 try {
-                    NobitexApi api = new NobitexApi(key, sec);
+                    NobitexApi api = new NobitexApi(repairedKey, repairedSec);
                     NobitexApi.ConnResult r = api.testConnection();
                     prefs.setConn(r.ok ? 1 : 2, r.email, System.currentTimeMillis());
                     if (r.ok) {
