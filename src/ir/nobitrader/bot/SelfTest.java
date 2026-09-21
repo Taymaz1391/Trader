@@ -375,6 +375,15 @@ public class SelfTest {
         check(Math.abs(mk.get(0)[0] - 1_700_000_123.0) < 1e-6 && mk.get(0)[2] == 1, "buy marker time+side");
         check(Math.abs(mk.get(1)[1] - 6.0) < 1e-9 && mk.get(1)[2] == -1, "sell marker price+side");
 
+        System.out.println("== nobitex key pair (docs example) ==");
+        check(NobitexApi.secretLooksValid("S5y19KewZzheCWCO4xqMcwwvtR8vQ-hHjE_cdjz-XxE="),
+                "docs privateKey decodes to a 32-byte seed");
+        check(java.util.Arrays.equals(
+                Ed25519.b64Decode("5XOCQZSPLQM4MiLzuUnZoBuqgYgTKl40W2X5j1pxfIA="),
+                NobitexApi.derivePublicBytes("S5y19KewZzheCWCO4xqMcwwvtR8vQ-hHjE_cdjz-XxE=")),
+                "docs key pair: public == derive(private) — local pair verification works");
+        check(!NobitexApi.secretLooksValid("not-a-key"), "garbage secret rejected");
+
         System.out.println("== ed25519 (RFC 8032 test vectors) ==");
         byte[] seed1 = hex("9d61b19deffd5a60ba844af492ec2cc44449c5697b326919703bac031cae7f60");
         byte[] pub1 = Ed25519.publicKey(seed1);

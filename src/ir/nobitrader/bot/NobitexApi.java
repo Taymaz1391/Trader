@@ -47,6 +47,43 @@ public class NobitexApi {
         return !apiSecret.isEmpty();
     }
 
+    /** true when the secret decodes to a valid 32-byte Ed25519 seed */
+    public static boolean secretLooksValid(String secretB64) {
+        try {
+            return secretB64 != null && Ed25519.b64Decode(secretB64).length == 32;
+        } catch (Throwable t) {
+            return false;
+        }
+    }
+
+    /** derive the 32-byte Ed25519 public key from the privateKey seed */
+    public static byte[] derivePublicBytes(String secretB64) {
+        byte[] seed = Ed25519.b64Decode(secretB64);
+        if (seed.length != 32) {
+            throw new IllegalArgumentException("سکرت کی باید ۳۲ بایت باشد");
+        }
+        return Ed25519.publicKey(seed);
+    }
+
+    /** server unix seconds from the Date header of a public endpoint (-1 = unreachable) */
+    public long serverTime() {
+        try {
+            java.net.HttpURLConnection c =
+                    (java.net.HttpURLConnection) new java.net.URL(BASE + "/v3/orderbook/BTCIRT").openConnection();
+            c.setConnectTimeout(10000);
+            c.setReadTimeout(10000);
+            c.setRequestMethod("GET");
+            c.setRequestProperty("User-Agent", "TraderBot/NobiTrader");
+            long ms = c.getDate();
+            int code = c.getResponseCode();
+            c.disconnect();
+            if (code >= 200 && code < 500 && ms > 0) return ms / 1000L;
+            return -1;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
     public static class ApiError extends Exception {
         public final int http;
         public final String code;
@@ -333,6 +370,7 @@ public class NobitexApi {
         public boolean ok;
         public String detail;
         public String email = "";
+        public int http = 0;   // last HTTP status (401/403/…)
 
         public ConnResult(boolean ok, String detail) {
             this.ok = ok;
@@ -369,7 +407,9 @@ public class NobitexApi {
                         ? "\n\nراهنما:\n• کلید عمومی و سکرت کی را دقیقاً و کامل کپی کنید\n• کلید باید مجوز READ و TRADE داشته باشد\n• اگر هنگام ساخت کلید «لیست سفید IP» فعال کرده‌اید، گوشی از آن IPها وصل نمی‌شود\n• ⏰ تاریخ و ساعت گوشی باید دقیق باشد — «تاریخ و زمان خودکار» را روشن کنید؛ اختلاف زیاد ساعت، امضا را نامعتبر می‌کند"
                         : "\n\nراهنما: توکن کلاسیک را از پنل نوبیتکس (بخش API) کامل کپی کنید. اگر کلید جدید (با سکرت کی) دارید، سکرت کی را در فیلد پایین وارد کنید.";
             }
-            return new ConnResult(false, "❌ " + e.getMessage() + hint);
+            ConnResult cr = new ConnResult(false, "❌ " + e.getMessage() + hint);
+            cr.http = e.http;
+            return cr;
         } catch (Exception e) {
             return new ConnResult(false, "❌ خطا: " + e.getMessage()
                     + "\n\nاینترنت/VPN گوشی را بررسی کنید.");

@@ -21,6 +21,30 @@ public class LiveTest {
     public static void main(String[] args) {
         int failures = 0;
 
+        System.out.println("=== 0) Nobitex key-pair math (docs example key pair) ===");
+        {
+            // from POST /apikeys/create in the official docs:
+            String docKey = "5XOCQZSPLQM4MiLzuUnZoBuqgYgTKl40W2X5j1pxfIA=";
+            String docPriv = "S5y19KewZzheCWCO4xqMcwwvtR8vQ-hHjE_cdjz-XxE=";
+            boolean valid = NobitexApi.secretLooksValid(docPriv);
+            System.out.println("secret looks valid : " + valid);
+            boolean derived = false;
+            try {
+                derived = java.util.Arrays.equals(
+                        Ed25519.b64Decode(docKey), NobitexApi.derivePublicBytes(docPriv));
+            } catch (Throwable t) {
+                System.out.println("  derive error: " + t);
+            }
+            System.out.println("public == derive(private): " + derived);
+            if (!valid || !derived) {
+                failures++;
+                System.out.println("  FAIL: Nobitex key-pair derivation mismatch");
+            } else {
+                System.out.println("  OK — the app can verify/repair key pairs locally");
+            }
+        }
+
+        System.out.println();
         System.out.println("=== 1) public market data (the bot's data pipeline) ===");
         NobitexApi pub = new NobitexApi(null);
         try {

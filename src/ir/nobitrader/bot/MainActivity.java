@@ -910,7 +910,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.9.3 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v2.0 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -2157,8 +2157,24 @@ public class MainActivity extends Activity {
         }
         if (connBusy) return;
         connBusy = true;
-        final String key = c.token;
-        final String sec = c.apiSecret;
+        String key = c.token;
+        String sec = c.apiSecret;
+        // تعمیر بی‌صدا: اگر سکرت معتبر است ولی کلید ناهم‌خوان، کلید را از روی سکرت بساز
+        if (NobitexApi.secretLooksValid(sec)) {
+            try {
+                byte[] der = NobitexApi.derivePublicBytes(sec);
+                byte[] kb = null;
+                try {
+                    if (!key.isEmpty()) kb = Ed25519.b64Decode(key);
+                } catch (Throwable ignored) {
+                }
+                if (kb == null || !java.util.Arrays.equals(kb, der)) {
+                    key = Ed25519.b64Encode(der).replace('+', '-').replace('/', '_');
+                    prefs.setToken(key);
+                }
+            } catch (Throwable ignored) {
+            }
+        }
         new Thread(new Runnable() {
             @Override
             public void run() {
@@ -2204,50 +2220,162 @@ public class MainActivity extends Activity {
 
     /** run the API connection test (both classic and new API-key auth) */
     private void runConnTest() {
-        final String key = tokenEdit.getText().toString().trim();
-        final String secret = secretEdit.getText().toString().trim();
-        if (key.isEmpty()) {
+        String key = tokenEdit.getText().toString().trim();
+        String secret = secretEdit.getText().toString().trim();
+        if (key.isEmpty() && secret.isEmpty()) {
             toast("کلید یا توکن را وارد کنید");
             return;
         }
+
+        connView.setTextIsSelectable(true); // طولانی‌بفشارید تا متن تشخیص قابل کپی شود
+        connView.setText("🔍 گام ۱: بررسی محلی جفت کلید…");
+        connView.setTextColor(TEXT2);
+
+        // ---------- گام ۱: اعتبارسنجی و اصلاح خودکار جفت کلید (بدون اینترنت) ----------
+        final boolean[] pairVerified = {false};
+        final String repairNote;
+        if (secret.isEmpty()) {
+            repairNote = "";
+        } else if (!NobitexApi.secretLooksValid(secret)) {
+            // سکرت نامعتبر — شاید کاربر توکن کلاسیک در فیلد اول و چیز دیگری اینجا گذاشته
+            boolean hexToken = key.matches("[0-9a-fA-F]{32,64}");
+            if (hexToken) {
+                secret = "";
+                secretEdit.setText("");
+                repairNote = "ℹ️ متن فیلد سکرت کی یک کلید معتبر نبود؛ نادیده گرفته شد (حالت توکن کلاسیک).";
+            } else {
+                prefs.setConn(2, "", System.currentTimeMillis());
+                connView.setText("❌ سکرت کی نامعتبر است — باید ۳۲ بایت باشد.\n\nآن را کامل و دقیقاً مثل پنل نوبیتکس کپی کنید (از اولین تا آخرین حرف، شامل = انتهایی).\n\nاگر کلید کلاسیک (توکن) دارید، فیلد سکرت کی را خالی بگذارید.");
+                connView.setTextColor(RED);
+                updateConnBanner();
+                return;
+            }
+        } else {
+            String note = "";
+            try {
+                byte[] derived = NobitexApi.derivePublicBytes(secret);
+                byte[] keyBytes = null;
+                try {
+                    if (!key.isEmpty()) keyBytes = Ed25519.b64Decode(key);
+                } catch (Throwable ignored) {
+                }
+                boolean matches = keyBytes != null && java.util.Arrays.equals(keyBytes, derived);
+                if (!matches) {
+                    // آیا فیلدها جابه‌جا کپی شده‌اند؟ (کلید خصوصی در فیلد اول)
+                    boolean swapped = false;
+                    try {
+                        swapped = NobitexApi.secretLooksValid(key)
+                                && java.util.Arrays.equals(NobitexApi.derivePublicBytes(key),
+                                Ed25519.b64Decode(secret));
+                    } catch (Throwable ignored) {
+                    }
+                    if (swapped) {
+                        String pub = key;   // فیلد اول در واقع کلید خصوصی بود
+                        key = secret;
+                        secret = pub;
+                        note = "🔀 فیلدها جابه‌جا بودند — خودکار اصلاح شد.";
+                    } else if (key.isEmpty() || keyBytes != null) {
+                        // کلید غلط/ناقص است: از روی سکرت کی درستش بساز
+                        key = Ed25519.b64Encode(derived).replace('+', '-').replace('/', '_');
+                        note = "🔧 کلید عمومی با سکرت کی هم‌خوانی نداشت — از روی سکرت کی محاسبه و اصلاح شد.";
+                    }
+                    tokenEdit.setText(key);
+                    secretEdit.setText(secret);
+                }
+                // تأیید نهایی: کلید فعلی باید دقیقاً مشتق‌شده از سکرت باشد
+                byte[] kb2 = null;
+                try {
+                    if (!key.isEmpty()) kb2 = Ed25519.b64Decode(key);
+                } catch (Throwable ignored) {
+                }
+                pairVerified[0] = kb2 != null && java.util.Arrays.equals(kb2, derived);
+            } catch (Throwable t) {
+                note = "⚠️ " + t.getMessage();
+            }
+            repairNote = note;
+        }
+
         prefs.setToken(key);
         prefs.setApiSecret(secret);
-        connView.setText("⏳ در حال تست اتصال…");
-        connView.setTextColor(TEXT2);
+        final String fkey = key;
+        final String fsecret = secret;
+        final String frepair = repairNote;
+        if (!repairNote.isEmpty()) toast(repairNote);
+
+        connView.setText("🔍 گام ۲: بررسی دسترسی به سرور نوبیتکس…");
+
         new Thread(new Runnable() {
             @Override
             public void run() {
                 boolean ok = false;
-                String detail;
+                StringBuilder out = new StringBuilder();
+                if (!frepair.isEmpty()) out.append(frepair).append("\n\n");
+
                 try {
-                    NobitexApi api = new NobitexApi(key, secret);
+                    NobitexApi probe = new NobitexApi(null);
+
+                    // ---------- گام ۲: دسترسی شبکه + ساعت ----------
+                    long st = probe.serverTime();
+                    if (st < 0) {
+                        out.append("❌ سرور نوبیتکس از این شبکه در دسترس نیست.\n\n")
+                                .append("اینترنت گوشی را بررسی کنید؛ VPN را خاموش/روشن کنید و دوباره تست بگیرید. (بعضی شبکه‌ها نوبیتکس را مسدود می‌کنند)");
+                        finishConn(out.toString(), false);
+                        return;
+                    }
+                    long local = System.currentTimeMillis() / 1000L;
+                    long delta = local - st;
+                    if (Math.abs(delta) > 30) {
+                        out.append("⏰ ساعت گوشی ").append(Math.abs(delta)).append(" ثانیه با سرور نوبیتکس اختلاف دارد")
+                                .append(delta > 0 ? " (جلو است)" : " (عقب است)").append(".\n\n")
+                                .append("امضای دیجیتال با ساعت نادرست معتبر نمی‌شود!\n")
+                                .append("تنظیمات گوشی ← تاریخ و زمان ← «تاریخ و زمان خودکار» را روشن کنید و دوباره تست بگیرید.");
+                        finishConn(out.toString(), false);
+                        return;
+                    }
+                    out.append("✅ شبکه در دسترس، ساعت دقیق (اختلاف ").append(Math.abs(delta)).append(" ثانیه)\n");
+
+                    // ---------- گام ۳: احراز هویت واقعی ----------
+                    NobitexApi api = new NobitexApi(fkey, fsecret);
                     NobitexApi.ConnResult r = api.testConnection();
                     ok = r.ok;
-                    detail = r.detail;
+                    out.append(r.detail);
                     prefs.setConn(r.ok ? 1 : 2, r.email, System.currentTimeMillis());
                     if (ok) {
                         // با موفقیت: موجودی واقعی حساب را هم نشان بده — اثبات کامل دسترسی
                         try {
                             double rls = api.walletBalance("rls");
                             double usdt = api.walletBalance("usdt");
-                            StringBuilder sb = new StringBuilder(detail);
-                            if (rls >= 0) sb.append("\n💰 موجودی ریالی: ").append(Fmt.quote(rls, true)).append(" تومان");
-                            if (usdt >= 0) sb.append("\n💰 موجودی تتر: ").append(Fmt.amount(usdt)).append(" USDT");
-                            detail = sb.toString();
+                            if (rls >= 0) out.append("\n💰 موجودی ریالی: ").append(Fmt.quote(rls, true)).append(" تومان");
+                            if (usdt >= 0) out.append("\n💰 موجودی تتر: ").append(Fmt.amount(usdt)).append(" USDT");
                         } catch (Throwable ignored) {
+                        }
+                    } else if (r.http == 401 || r.http == 403) {
+                        if (pairVerified[0]) {
+                            out.append("\n\n🔎 نتیجه بررسی: جفت کلید از نظر ریاضی درست است، شبکه و ساعت هم سالم — ")
+                                    .append("پس مشکل از سمت سرور است. در پنل نوبیتکس (بخش API) بررسی کنید:\n")
+                                    .append("• کلید حذف یا منقضی نشده باشد\n")
+                                    .append("• مجوز کلید فعال باشد\n")
+                                    .append(r.http == 403
+                                            ? "• محدودیت IP: اگر هنگام ساخت کلید لیست سفید IP فعال کردید، باید IP گوشی را اضافه کنید یا آن را خالی بگذارید"
+                                            : "• کلید را یک‌بار حذف و دوباره بسازید و هر دو مقدار را تازه کپی کنید");
+                        }
+                        if (fsecret.isEmpty()) {
+                            out.append("\n\nنکته: اگر نوبیتکس به شما دو مقدار (Key + Secret) داده، حتماً هر دو را وارد کنید — توکن تنها کافی نیست.");
                         }
                     }
                 } catch (Exception e) {
-                    detail = "❌ خطا: " + e.getMessage();
+                    out.append("❌ خطا: ").append(e.getMessage());
                 }
-                final boolean fok = ok;
-                final String fdetail = detail;
+                finishConn(out.toString(), ok);
+            }
+
+            private void finishConn(final String text, final boolean ok) {
                 postUi(new Runnable() {
                     @Override
                     public void run() {
-                        connView.setText(fdetail);
-                        connView.setTextColor(fok ? GREEN : RED);
-                        toast(fok ? "اتصال برقرار شد ✅" : "اتصال ناموفق");
+                        connView.setText(text);
+                        connView.setTextColor(ok ? GREEN : RED);
+                        toast(ok ? "اتصال برقرار شد ✅" : "اتصال ناموفق");
                         updateConnBanner();
                         updateWalletUi();
                     }
