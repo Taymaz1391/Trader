@@ -73,7 +73,8 @@ public class MainActivity extends Activity {
     private EditText riskEdit;
     private EditText dailyEdit, alertPriceEdit;
     private EditText secretEdit;
-    private Button testBtn;
+    private Button testBtn, netDiagBtn;
+    private volatile int priceFails = 0;
     private TextView connView;
     private Button playBtn;
     private boolean replaying = false;
@@ -843,6 +844,20 @@ public class MainActivity extends Activity {
             }
         });
 
+        netDiagBtn = button("🩺 تشخیص شبکه (چرا وصل نمی‌شود؟)", 0xFF3A2A1B);
+        netDiagBtn.setTextColor(0xFFF5B84D);
+        LinearLayout.LayoutParams ndLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        ndLp.topMargin = dp(8);
+        netDiagBtn.setLayoutParams(ndLp);
+        ac.addView(netDiagBtn);
+        netDiagBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                runNetDiag();
+            }
+        });
+
         // ---- auto-save the API key/secret while typing (debounced) ----
         keySaver = new Runnable() {
             @Override
@@ -910,7 +925,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v2.0 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v2.1 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1646,7 +1661,9 @@ public class MainActivity extends Activity {
                     } catch (Exception ignored) {
                     }
                     WidgetProvider.push(MainActivity.this);
+                    priceFails = 0;
                 } catch (Exception ignored) {
+                    priceFails++;
                 } finally {
                     priceBusy = false;
                 }
@@ -1794,6 +1811,9 @@ public class MainActivity extends Activity {
         } else if (fromCache) {
             livePill.setText("آخرین قیمت ذخیره‌شده — در حال اتصال…");
             livePill.setTextColor(TEXT2);
+        } else if (lastPriceOkAt == 0 && priceFails >= 2) {
+            livePill.setText("⚠️ اتصال به نوبیتکس برقرار نمی‌شود — از تنظیمات «🩺 تشخیص شبکه» را اجرا کنید");
+            livePill.setTextColor(RED);
         } else {
             livePill.setText("در حال اتصال به نوبیتکس…");
             livePill.setTextColor(TEXT2);
@@ -2206,6 +2226,8 @@ public class MainActivity extends Activity {
                         }
                     }
                 } catch (Throwable ignored) {
+                    // خطای شبکه: بنر نباید در حالت «در حال بررسی» گیر کند
+                    prefs.setConn(2, "", System.currentTimeMillis());
                 } finally {
                     connBusy = false;
                 }
@@ -2221,6 +2243,134 @@ public class MainActivity extends Activity {
     }
 
     /** run the API connection test (both classic and new API-key auth) */
+    /** append one line to the diagnostics view (thread-safe) */
+    private void diagAppend(final String line) {
+        postUi(new Runnable() {
+            @Override
+            public void run() {
+                connView.append(line);
+            }
+        });
+    }
+
+    /** HTTP status code of a quick probe (-1 = unreachable) */
+    private static int httpProbe(String url, int timeoutMs) {
+        try {
+            java.net.HttpURLConnection c =
+                    (java.net.HttpURLConnection) new java.net.URL(url).openConnection();
+            c.setConnectTimeout(timeoutMs);
+            c.setReadTimeout(timeoutMs);
+            c.setInstanceFollowRedirects(false);
+            c.setRequestProperty("User-Agent", "TraderBot/NobiTrader");
+            int code = c.getResponseCode();
+            c.disconnect();
+            return code;
+        } catch (Throwable t) {
+            return -1;
+        }
+    }
+
+    /** full network diagnostics: layer by layer, in Persian, copyable */
+    private void runNetDiag() {
+        connView.setTextIsSelectable(true);
+        connView.setTextColor(TEXT2);
+        connView.setText("🩺 تشخیص شبکه — لایه به لایه…\n\n");
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                // ---- لایه ۰: وضعیت شبکه گوشی ----
+                diagAppend("۱) وضعیت شبکه گوشی:\n");
+                boolean vpn = false;
+                boolean netOk = false;
+                try {
+                    android.net.ConnectivityManager cm =
+                            (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                    android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
+                    netOk = ni != null && ni.isConnected();
+                    android.net.Network nw = cm.getActiveNetwork();
+                    android.net.NetworkCapabilities caps =
+                            nw == null ? null : cm.getNetworkCapabilities(nw);
+                    vpn = caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_VPN);
+                    boolean wifi = caps != null && caps.hasTransport(android.net.NetworkCapabilities.TRANSPORT_WIFI);
+                    if (!netOk) {
+                        diagAppend("❌ گوشی به هیچ شبکه‌ای وصل نیست (وای‌فای/دیتا روشن نیست یا حالت پرواز فعال است).\n\nاول اتصال گوشی را برقرار کنید و دوباره تست بگیرید.");
+                        return;
+                    }
+                    diagAppend("✅ متصل از طریق " + (wifi ? "وای‌فای" : "دیتای موبایل"));
+                    if (vpn) diagAppend("\n⚠️ VPN فعال است — نوبیتکس ممکن است IP خارجی را مسدود کند یا VPN خودش نوبیتکس را قطع کند");
+                    diagAppend("\n\n");
+                } catch (Throwable t) {
+                    diagAppend("▪ نامشخص\n\n");
+                }
+
+                // ---- لایه ۱: اینترنت عمومی ----
+                diagAppend("۲) اینترنت عمومی:\n");
+                long t0 = System.currentTimeMillis();
+                int ref1 = httpProbe("https://cloudflare.com/cdn-cgi/trace", 10000);
+                int ref2 = httpProbe("https://api.github.com", 10000);
+                boolean internetOk = ref1 > 0 || ref2 > 0;
+                if (!internetOk) {
+                    diagAppend("❌ هیچ سایت خارجی پاسخ نداد (کلادفلر: " + (ref1 > 0 ? ref1 : "✗")
+                            + "، گیت‌هاب: " + (ref2 > 0 ? ref2 : "✗") + ")\n\nاینترنت گوشی واقعاً کار نمی‌کند — دیتا/شارژ وای‌فای و اتصال را بررسی کنید.");
+                    return;
+                }
+                diagAppend("✅ اینترنت فعال است (کلادفلر: " + ref1 + "، گیت‌هاب: " + ref2 + ")\n\n");
+
+                // ---- لایه ۲: DNS نوبیتکس ----
+                diagAppend("۳) ترجمه نام دامنه نوبیتکس (DNS):\n");
+                java.net.InetAddress[] addrs;
+                try {
+                    addrs = java.net.InetAddress.getAllByName("apiv2.nobitex.ir");
+                    StringBuilder ips = new StringBuilder();
+                    for (java.net.InetAddress a : addrs) {
+                        if (ips.length() > 0) ips.append("، ");
+                        ips.append(a.getHostAddress());
+                    }
+                    diagAppend("✅ آدرس‌های سرور: " + ips + "\n\n");
+                } catch (Throwable t) {
+                    diagAppend("❌ دامنه نوبیتکس حل نشد — مشکل DNS است.\n\nراه حل: در تنظیمات وای‌فای، DNS خصوصی/دستی را روی «شکن» 178.22.122.100 یا 8.8.8.8 بگذارید، یا VPN را خاموش/روشن کنید و دوباره تست بگیرید.");
+                    return;
+                }
+
+                // ---- لایه ۳: اتصال TCP به سرور نوبیتکس ----
+                diagAppend("۴) اتصال مستقیم به سرور نوبیتکس:\n");
+                boolean tcpOk = false;
+                for (java.net.InetAddress a : addrs) {
+                    try {
+                        java.net.Socket sock = new java.net.Socket();
+                        sock.connect(new java.net.InetSocketAddress(a, 443), 8000);
+                        sock.close();
+                        tcpOk = true;
+                        diagAppend("✅ اتصال به " + a.getHostAddress() + " برقرار شد\n\n");
+                        break;
+                    } catch (Throwable t) {
+                        diagAppend("✗ " + a.getHostAddress() + " پاسخ نداد\n");
+                    }
+                }
+                if (!tcpOk) {
+                    diagAppend("\n❌ سرور نوبیتکس از این شبکه قابل دسترسی نیست (ARP/فایروول/محدودیت اپراتور).\n\nراه حل: " + (vpn
+                            ? "VPN را خاموش کنید و دوباره تست بگیرید — با VPN خارجی، دسترسی به صرافی‌های ایرانی معمولاً قطع است."
+                            : "یک VPN ایرانی/آمِن روشن کنید یا از شبکه دیگری (وای‌فای ↔ دیتا) امتحان کنید و دوباره تست بگیرید."));
+                    return;
+                }
+
+                // ---- لایه ۴: HTTPS واقعی به نوبیتکس ----
+                diagAppend("۵) درخواست HTTPS به نوبیتکس:\n");
+                long t1 = System.currentTimeMillis();
+                int nb = httpProbe("https://apiv2.nobitex.ir/v3/orderbook/BTCIRT", 15000);
+                long ms = System.currentTimeMillis() - t1;
+                if (nb <= 0) {
+                    diagAppend("❌ اتصال TCP برقرار می‌شود ولی HTTPS کامل نمی‌شود (احتمالاً فیلتر TLS/پروکسی).\n\nراه حل: VPN را تغییر دهید (روشن/خاموش) و دوباره تست بگیرید.");
+                    return;
+                }
+                diagAppend("✅ پاسخ HTTPS دریافت شد (کد " + nb + " در " + ms + " میلی‌ثانیه)\n\n");
+
+                // ---- نتیجه ----
+                diagAppend("✅ نتیجه: شبکه گوشی شما کاملاً به نوبیتکس دسترسی دارد.\n\nپس اگر «تست اتصال» جواب منفی می‌دهد، مشکل فقط از کلید API است — دکمه «🔌 تست اتصال» را بزنید تا نردبان تشخیص کلید اجرا شود.");
+            }
+        }).start();
+    }
+
     private void runConnTest() {
         String key = tokenEdit.getText().toString().trim();
         String secret = secretEdit.getText().toString().trim();
