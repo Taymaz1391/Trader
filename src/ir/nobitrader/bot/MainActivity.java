@@ -75,6 +75,8 @@ public class MainActivity extends Activity {
     private EditText secretEdit;
     private Button testBtn, netDiagBtn;
     private volatile int priceFails = 0;
+    private LinearLayout welcomeCard;
+    private EditText baseEdit;
     private TextView connView;
     private Button playBtn;
     private boolean replaying = false;
@@ -116,6 +118,7 @@ public class MainActivity extends Activity {
         engine = BotEngine.get(this);
         prefs = new Prefs(this);
         Store.init(prefs);
+        NobitexApi.setBase(prefs.cfg().apiBase);
 
         getWindow().setStatusBarColor(BG);
         getWindow().setNavigationBarColor(BG);
@@ -371,6 +374,28 @@ public class MainActivity extends Activity {
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
         cbnLp.topMargin = dp(8);
         linDash.addView(connBanner, cbnLp);
+
+        // ---------- welcome / guided setup (only before the API key is entered) ----------
+        welcomeCard = card();
+        welcomeCard.addView(text("👋 خوش آمدید!", 17f, GOLD, true));
+        welcomeCard.addView(text("در ۳ قدم ربات را راه‌اندازی کنید:", 13f, TEXT, true));
+        welcomeCard.addView(text("۱. در پنل نوبیتکس (بخش API) یک کلید با مجوز «معامله» بسازید — هرگز مجوز برداشت ندهید\n۲. کلید عمومی و سکرت کی را در تنظیمات وارد کنید\n۳. دکمه «تست اتصال» را بزنید تا موجودی حساب‌تان نمایش داده شود", 12f, TEXT2, false));
+        Button setupBtn = button("🔑 شروع راه‌اندازی", GOLD);
+        setupBtn.setTextColor(0xFF0D1320);
+        LinearLayout.LayoutParams sbtnLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        sbtnLp.topMargin = dp(10);
+        setupBtn.setLayoutParams(sbtnLp);
+        welcomeCard.addView(setupBtn);
+        setupBtn.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                showTab(3);
+                if (tokenEdit != null) tokenEdit.requestFocus();
+                toast("کلید API را اینجا وارد کنید ✍️");
+            }
+        });
+        linDash.addView(welcomeCard);
 
         // ---------- live market chips (tap to switch symbol) ----------
         android.widget.HorizontalScrollView chipsScroll = new android.widget.HorizontalScrollView(this);
@@ -835,6 +860,16 @@ public class MainActivity extends Activity {
         walletView = text("برای معامله واقعی، کلید را وارد و بررسی کنید. کلید فقط روی همین گوشی ذخیره می‌شود.", 12f, TEXT2, false);
         walletView.setLineSpacing(dp(2), 1f);
         ac.addView(margin(walletView, 8));
+        ac.addView(margin(label("🛠 آدرس سرور API (پیشرفته — فقط اگر شبکه نوبیتکس را فیلتر کرده)"), 10));
+        baseEdit = new EditText(this);
+        baseEdit.setHint("خالی = پیش‌فرض (apiv2.nobitex.ir)");
+        baseEdit.setTextSize(13f);
+        baseEdit.setTextColor(TEXT);
+        baseEdit.setHintTextColor(TEXT2);
+        baseEdit.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_URI);
+        baseEdit.setTypeface(Typeface.DEFAULT);
+        ac.addView(baseEdit);
+        ac.addView(margin(text("اگر «تشخیص شبکه» نشان داد نوبیتکس از شبکه شما در دسترس نیست، می‌توانید آدرس یک آینه یا پروکسی شخصی را اینجا بگذارید — همه درخواست‌ها از طریق آن ارسال می‌شود.", 11f, TEXT2, false), 4));
         linSettings.addView(ac);
 
         testBtn.setOnClickListener(new View.OnClickListener() {
@@ -925,7 +960,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v2.1 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v2.2 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1352,6 +1387,13 @@ public class MainActivity extends Activity {
         }
         prefs.setToken(tokenEdit.getText().toString().trim());
         prefs.setApiSecret(secretEdit.getText().toString().trim());
+        String b = baseEdit.getText().toString().trim();
+        if (!b.isEmpty() && !b.startsWith("http://") && !b.startsWith("https://")) {
+            toast("آدرس سرور باید با https:// شروع شود");
+            return false;
+        }
+        prefs.setApiBase(b);
+        NobitexApi.setBase(prefs.cfg().apiBase);
         prefs.setTradeAmount(amount);
         prefs.setSlPct(sl);
         prefs.setTpPct(tp);
@@ -1386,6 +1428,9 @@ public class MainActivity extends Activity {
         Prefs.Cfg c = prefs.cfg();
         tokenEdit.setText(c.token);
         secretEdit.setText(c.apiSecret);
+        if (baseEdit != null) {
+            baseEdit.setText("https://apiv2.nobitex.ir".equals(c.apiBase) ? "" : c.apiBase);
+        }
         amountEdit.setText(fmtNum(c.tradeAmount));
         slEdit.setText(fmtNum(c.slPct));
         tpEdit.setText(fmtNum(c.tpPct));
@@ -1768,6 +1813,14 @@ public class MainActivity extends Activity {
 
         updateConnBanner();
         updateWalletUi();
+        if (welcomeCard != null) {
+            welcomeCard.setVisibility(cfg.token.isEmpty() ? View.VISIBLE : View.GONE);
+        }
+        // ترمیم خودکار: اگر اتصال قطع است، هر ۶۰ ثانیه بی‌صدا دوباره امتحان کن
+        if (!cfg.token.isEmpty() && prefs.connStatus() == 2
+                && System.currentTimeMillis() - prefs.connCheckedAt() > 60_000L) {
+            silentConnCheck(true);
+        }
         refreshChips();
         renderAlerts();
         for (int i = 0; i < CHIP_SYMS.length; i++) {
@@ -2172,7 +2225,9 @@ public class MainActivity extends Activity {
             return;
         }
         long now = System.currentTimeMillis();
-        if (!force && prefs.connStatus() != 0 && now - prefs.connCheckedAt() < 300_000L) {
+        // اتصال سالم: هر ۵ دقیقه؛ اتصال قطع: هر ۶۰ ثانیه (تلاش برای ترمیم)
+        long gap = prefs.connStatus() == 2 ? 60_000L : 300_000L;
+        if (!force && prefs.connStatus() != 0 && now - prefs.connCheckedAt() < gap) {
             return;
         }
         if (connBusy) return;
@@ -2197,12 +2252,15 @@ public class MainActivity extends Activity {
         }
         final String repairedKey = key;
         final String repairedSec = sec;
+        final int prevStatus = prefs.connStatus();
         new Thread(new Runnable() {
             @Override
             public void run() {
+                boolean recovered = false;
                 try {
                     NobitexApi api = new NobitexApi(repairedKey, repairedSec);
                     NobitexApi.ConnResult r = api.testConnection();
+                    recovered = r.ok && prevStatus == 2;
                     prefs.setConn(r.ok ? 1 : 2, r.email, System.currentTimeMillis());
                     if (r.ok) {
                         try {
@@ -2231,11 +2289,13 @@ public class MainActivity extends Activity {
                 } finally {
                     connBusy = false;
                 }
+                final boolean frecovered = recovered;
                 postUi(new Runnable() {
                     @Override
                     public void run() {
                         updateConnBanner();
                         updateWalletUi();
+                        if (frecovered) toast("✅ اتصال به نوبیتکس دوباره برقرار شد");
                     }
                 });
             }
@@ -2320,7 +2380,8 @@ public class MainActivity extends Activity {
                 diagAppend("۳) ترجمه نام دامنه نوبیتکس (DNS):\n");
                 java.net.InetAddress[] addrs;
                 try {
-                    addrs = java.net.InetAddress.getAllByName("apiv2.nobitex.ir");
+                    String diagHost = new java.net.URL(NobitexApi.BASE).getHost();
+                    addrs = java.net.InetAddress.getAllByName(diagHost);
                     StringBuilder ips = new StringBuilder();
                     for (java.net.InetAddress a : addrs) {
                         if (ips.length() > 0) ips.append("، ");
@@ -2357,7 +2418,7 @@ public class MainActivity extends Activity {
                 // ---- لایه ۴: HTTPS واقعی به نوبیتکس ----
                 diagAppend("۵) درخواست HTTPS به نوبیتکس:\n");
                 long t1 = System.currentTimeMillis();
-                int nb = httpProbe("https://apiv2.nobitex.ir/v3/orderbook/BTCIRT", 15000);
+                int nb = httpProbe(NobitexApi.BASE + "/v3/orderbook/BTCIRT", 15000);
                 long ms = System.currentTimeMillis() - t1;
                 if (nb <= 0) {
                     diagAppend("❌ اتصال TCP برقرار می‌شود ولی HTTPS کامل نمی‌شود (احتمالاً فیلتر TLS/پروکسی).\n\nراه حل: VPN را تغییر دهید (روشن/خاموش) و دوباره تست بگیرید.");

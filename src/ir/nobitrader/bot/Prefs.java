@@ -22,6 +22,7 @@ public class Prefs {
     public static class Cfg {
         public String token = "";
         public String apiSecret = "";    // privateKey of the new API-key system
+        public String apiBase = "https://apiv2.nobitex.ir"; // custom endpoint (mirrors/proxies)
         public String symbol = "BTCIRT";
         public String resolution = "60";   // candle timeframe
         public int intervalSec = 300;      // check interval
@@ -48,6 +49,8 @@ public class Prefs {
         Cfg c = new Cfg();
         c.token = sp.getString("token", "");
         c.apiSecret = sp.getString("apiSecret", "");
+        c.apiBase = sp.getString("apiBase", "https://apiv2.nobitex.ir");
+        if (c.apiBase == null || c.apiBase.trim().isEmpty()) c.apiBase = "https://apiv2.nobitex.ir";
         c.symbol = sp.getString("symbol", "BTCIRT");
         c.resolution = sp.getString("resolution", "60");
         c.intervalSec = sp.getInt("intervalSec", 300);
@@ -75,6 +78,7 @@ public class Prefs {
         sp.edit()
                 .putString("token", c.token)
                 .putString("apiSecret", c.apiSecret)
+                .putString("apiBase", c.apiBase)
                 .putString("symbol", c.symbol)
                 .putString("resolution", c.resolution)
                 .putInt("intervalSec", c.intervalSec)
@@ -101,6 +105,14 @@ public class Prefs {
     // convenience single-field setters used by the UI
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }
     public void setApiSecret(String v) { sp.edit().putString("apiSecret", v == null ? "" : v.trim()).apply(); }
+
+    public void setApiBase(String v) {
+        String t = v == null ? "" : v.trim();
+        if (t.isEmpty()) t = "https://apiv2.nobitex.ir";
+        if (!t.startsWith("http://") && !t.startsWith("https://")) t = "https://" + t;
+        while (t.endsWith("/")) t = t.substring(0, t.length() - 1);
+        sp.edit().putString("apiBase", t).apply();
+    }
 
     /** connection check result: 0 = unknown, 1 = ok, 2 = failed */
     public int connStatus() { return sp.getInt("connStatus", 0); }

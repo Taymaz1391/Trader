@@ -51,6 +51,7 @@ public class BotEngine {
 
     public synchronized void start() {
         if (running) return;
+        NobitexApi.setBase(prefs.cfg().apiBase); // ممکن است سرویس مستقیم و بدون رابط کاربری اجرا شود
         running = true;
         prefs.setBotWasRunning(true);
         worker = new Thread(new Runnable() {

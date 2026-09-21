@@ -22,7 +22,17 @@ import java.util.zip.GZIPInputStream;
  */
 public class NobitexApi {
 
-    public static final String BASE = "https://apiv2.nobitex.ir";
+    /** default production endpoint; can be overridden (mirrors / personal proxies) */
+    public static String BASE = "https://apiv2.nobitex.ir";
+
+    /** override the API endpoint (validated: http(s) prefix, no trailing slash) */
+    public static void setBase(String url) {
+        String t = url == null ? "" : url.trim();
+        if (t.isEmpty()) return;
+        if (!t.startsWith("http://") && !t.startsWith("https://")) t = "https://" + t;
+        while (t.endsWith("/")) t = t.substring(0, t.length() - 1);
+        BASE = t;
+    }
 
     /** minimum order values enforced by Nobitex (rials / usdt) */
     public static final double MIN_RLS = 3_000_000;
