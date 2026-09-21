@@ -57,6 +57,12 @@ public class MainActivity extends Activity {
 
     // views
     private TextView statusPill, priceView, changeView, symbolTitle, livePill;
+    private LinearLayout connBanner;
+    private android.graphics.drawable.GradientDrawable connBg;
+    private TextView connDot, connText, connRetry;
+    private LinearLayout walletCard;
+    private TextView balRlsView, balUsdtView, balCoinView;
+    private volatile boolean connBusy = false;
     private TextView walletView, posView, statsView, logView, backtestView;
     private TextView stratDesc, amountHint, liveWarn, analysisView;
     private EditText tokenEdit, amountEdit, slEdit, tpEdit, trailEdit, tgTokenEdit, tgChatEdit;
@@ -130,6 +136,7 @@ public class MainActivity extends Activity {
         refreshUi();
         fetchChart();
         fetchPrice();
+        silentConnCheck(false);
         ui.postDelayed(poll, 2500);
     }
 
@@ -334,6 +341,36 @@ public class MainActivity extends Activity {
         hero.addView(head);
         linDash.addView(hero);
 
+        // ---------- connection banner (real API status at a glance) ----------
+        connBanner = new LinearLayout(this);
+        connBanner.setOrientation(LinearLayout.HORIZONTAL);
+        connBanner.setGravity(Gravity.CENTER_VERTICAL);
+        connBg = new android.graphics.drawable.GradientDrawable();
+        connBg.setColor(0xFF151D30);
+        connBg.setCornerRadius(dp(12));
+        connBg.setStroke(dp(1), STROKE);
+        connBanner.setBackground(connBg);
+        connBanner.setPadding(dp(12), dp(9), dp(12), dp(9));
+        connDot = text("●", 13f, TEXT2, true);
+        connBanner.addView(connDot);
+        connText = text("در حال بررسی اتصال…", 12f, TEXT2, false);
+        connText.setPadding(dp(6), 0, dp(6), 0);
+        connBanner.addView(connText, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        connRetry = text("تست مجدد ⟳", 11f, GOLD, true);
+        connRetry.setPadding(dp(8), dp(4), dp(8), dp(4));
+        connRetry.setOnClickListener(new View.OnClickListener() {
+            @Override
+            public void onClick(View v) {
+                silentConnCheck(true);
+            }
+        });
+        connBanner.addView(connRetry);
+        LinearLayout.LayoutParams cbnLp = new LinearLayout.LayoutParams(
+                ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
+        cbnLp.topMargin = dp(8);
+        linDash.addView(connBanner, cbnLp);
+
         // ---------- live market chips (tap to switch symbol) ----------
         android.widget.HorizontalScrollView chipsScroll = new android.widget.HorizontalScrollView(this);
         chipsScroll.setHorizontalScrollBarEnabled(false);
@@ -517,6 +554,33 @@ public class MainActivity extends Activity {
         sellResetRow.setLayoutParams(srl);
         pc.addView(sellResetRow);
         linDash.addView(pc);
+
+        // ---------- real Nobitex wallet balances (requires connection) ----------
+        walletCard = card();
+        walletCard.addView(text("💼 کیف پول نوبیتکس", 15f, GOLD, true));
+        walletCard.addView(text("موجودی‌های واقعی حساب شما — با هر «تست اتصال» یا باز شدن اپ به‌روز می‌شود", 11f, TEXT2, false));
+        LinearLayout wRls = row();
+        wRls.addView(label("موجودی ریالی"));
+        balRlsView = text("—", 13f, TEXT, true);
+        wRls.addView(balRlsView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        wRls.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        walletCard.addView(wRls);
+        LinearLayout wUsdt = row();
+        wUsdt.addView(label("موجودی تتر"));
+        balUsdtView = text("—", 13f, TEXT, true);
+        wUsdt.addView(balUsdtView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        wUsdt.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        walletCard.addView(wUsdt);
+        LinearLayout wCoin = row();
+        wCoin.addView(label("ارز بازار فعال"));
+        balCoinView = text("—", 13f, TEXT, true);
+        wCoin.addView(balCoinView, new LinearLayout.LayoutParams(
+                0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f));
+        wCoin.setGravity(Gravity.CENTER_VERTICAL | Gravity.END);
+        walletCard.addView(wCoin);
+        linDash.addView(walletCard);
 
         // ---------- settings card ----------
         LinearLayout sc = card();
@@ -846,7 +910,7 @@ public class MainActivity extends Activity {
         linTrades.addView(lc);
 
         // ---------- footer ----------
-        TextView foot = text("NobiTrader v1.9.2 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
+        TextView foot = text("NobiTrader v1.9.3 — معامله در بازار رمزارز با ریسک همراه است؛ مسئولیت معاملات بر عهده کاربر است. همیشه اول با حالت شبیه‌سازی تست کنید.", 11f, TEXT2, false);
         foot.setLineSpacing(dp(2), 1f);
         LinearLayout.LayoutParams fLp = new LinearLayout.LayoutParams(
                 ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT);
@@ -1685,6 +1749,8 @@ public class MainActivity extends Activity {
         Prefs.Cfg cfg = prefs.cfg();
         Market m = Market.of(cfg.symbol);
 
+        updateConnBanner();
+        updateWalletUi();
         refreshChips();
         renderAlerts();
         for (int i = 0; i < CHIP_SYMS.length; i++) {
@@ -2024,6 +2090,118 @@ public class MainActivity extends Activity {
         }
     }
 
+    /** dashboard banner: real connection state at a glance */
+    private void updateConnBanner() {
+        if (connText == null) return;
+        Prefs.Cfg c = prefs.cfg();
+        int st = prefs.connStatus();
+        int dotCol;
+        int bgCol;
+        String msg;
+        if (c.token.isEmpty()) {
+            dotCol = TEXT2;
+            bgCol = 0xFF151D30;
+            msg = "کلید API تنظیم نشده — از تب ⚙️ تنظیمات وارد کنید";
+        } else if (st == 1) {
+            dotCol = GREEN;
+            bgCol = 0xFF14261D;
+            String em = prefs.connEmail();
+            msg = "✅ متصل به نوبیتکس" + (em.isEmpty() ? "" : " — " + em);
+        } else if (st == 2) {
+            dotCol = RED;
+            bgCol = 0xFF2A1518;
+            msg = "❌ اتصال به نوبیتکس برقرار نشد — تنظیمات → تست اتصال";
+        } else {
+            dotCol = TEXT2;
+            bgCol = 0xFF151D30;
+            msg = "در حال بررسی اتصال به نوبیتکس…";
+        }
+        connDot.setTextColor(dotCol);
+        connText.setText(msg);
+        connText.setTextColor(c.token.isEmpty() || st == 0 ? TEXT2 : dotCol);
+        connBg.setColor(bgCol);
+        connBg.invalidateSelf();
+        if (connRetry != null) {
+            connRetry.setVisibility(c.token.isEmpty() ? View.GONE : View.VISIBLE);
+        }
+    }
+
+    /** dashboard: real wallet balances from the cache */
+    private void updateWalletUi() {
+        if (walletCard == null) return;
+        Prefs.Cfg c = prefs.cfg();
+        walletCard.setVisibility(c.token.isEmpty() ? View.GONE : View.VISIBLE);
+        if (c.token.isEmpty()) return;
+        Market m = Market.of(c.symbol);
+        balRlsView.setText(prefs.balRls() >= 0 ? Fmt.quote(prefs.balRls(), true) + " تومان" : "—");
+        balUsdtView.setText(prefs.balUsdt() >= 0 ? Fmt.amount(prefs.balUsdt()) + " USDT" : "—");
+        balCoinView.setText(prefs.balCoin() >= 0
+                ? Fmt.amount(prefs.balCoin()) + " " + Market.coinName(m.src) : "—");
+    }
+
+    /**
+     * Background connection check against the real Nobitex server.
+     * Updates the banner + cached wallet balances. Throttled to one call
+     * per 5 minutes unless forced.
+     */
+    private void silentConnCheck(final boolean force) {
+        Prefs.Cfg c = prefs.cfg();
+        if (c.token.isEmpty()) {
+            updateConnBanner();
+            updateWalletUi();
+            return;
+        }
+        long now = System.currentTimeMillis();
+        if (!force && prefs.connStatus() != 0 && now - prefs.connCheckedAt() < 300_000L) {
+            return;
+        }
+        if (connBusy) return;
+        connBusy = true;
+        final String key = c.token;
+        final String sec = c.apiSecret;
+        new Thread(new Runnable() {
+            @Override
+            public void run() {
+                try {
+                    NobitexApi api = new NobitexApi(key, sec);
+                    NobitexApi.ConnResult r = api.testConnection();
+                    prefs.setConn(r.ok ? 1 : 2, r.email, System.currentTimeMillis());
+                    if (r.ok) {
+                        try {
+                            org.json.JSONArray ws = api.wallets().getJSONArray("wallets");
+                            double rls = -1, usdt = -1, coin = -1;
+                            String src = Market.of(prefs.cfg().symbol).src.toLowerCase();
+                            for (int i = 0; i < ws.length(); i++) {
+                                org.json.JSONObject w = ws.getJSONObject(i);
+                                String cur = w.optString("currency", "").toLowerCase();
+                                double active = w.optDouble("activeBalance", -1);
+                                if (active < 0) {
+                                    active = w.optDouble("balance", 0)
+                                            - w.optDouble("blockedBalance", 0);
+                                }
+                                if (cur.equals("rls")) rls = active;
+                                else if (cur.equals("usdt")) usdt = active;
+                                else if (cur.equals(src)) coin = active;
+                            }
+                            prefs.setBalances(rls, usdt, coin);
+                        } catch (Throwable ignored) {
+                        }
+                    }
+                } catch (Throwable ignored) {
+                } finally {
+                    connBusy = false;
+                }
+                postUi(new Runnable() {
+                    @Override
+                    public void run() {
+                        updateConnBanner();
+                        updateWalletUi();
+                    }
+                });
+            }
+        }).start();
+    }
+
     /** run the API connection test (both classic and new API-key auth) */
     private void runConnTest() {
         final String key = tokenEdit.getText().toString().trim();
@@ -2046,6 +2224,7 @@ public class MainActivity extends Activity {
                     NobitexApi.ConnResult r = api.testConnection();
                     ok = r.ok;
                     detail = r.detail;
+                    prefs.setConn(r.ok ? 1 : 2, r.email, System.currentTimeMillis());
                     if (ok) {
                         // با موفقیت: موجودی واقعی حساب را هم نشان بده — اثبات کامل دسترسی
                         try {
@@ -2069,6 +2248,8 @@ public class MainActivity extends Activity {
                         connView.setText(fdetail);
                         connView.setTextColor(fok ? GREEN : RED);
                         toast(fok ? "اتصال برقرار شد ✅" : "اتصال ناموفق");
+                        updateConnBanner();
+                        updateWalletUi();
                     }
                 });
             }

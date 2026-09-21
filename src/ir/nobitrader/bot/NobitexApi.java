@@ -332,6 +332,7 @@ public class NobitexApi {
     public static class ConnResult {
         public boolean ok;
         public String detail;
+        public String email = "";
 
         public ConnResult(boolean ok, String detail) {
             this.ok = ok;
@@ -350,15 +351,15 @@ public class NobitexApi {
         try {
             JSONObject o = new JSONObject(http("/users/profile", false, null, true));
             if ("ok".equals(o.optString("status"))) {
-                String who = "";
+                String email = "";
                 JSONObject pr = o.optJSONObject("profile");
-                if (pr != null) {
-                    String em = pr.optString("email", "");
-                    if (!em.isEmpty()) who = "\nحساب: " + em;
-                }
-                return new ConnResult(true, (isKeyAuth()
+                if (pr != null) email = pr.optString("email", "");
+                String who = email.isEmpty() ? "" : "\nحساب: " + email;
+                ConnResult r = new ConnResult(true, (isKeyAuth()
                         ? "✅ متصل شد (کلید API جدید با امضای Ed25519)" + who
                         : "✅ متصل شد (توکن کلاسیک)" + who));
+                r.email = email;
+                return r;
             }
             return new ConnResult(false, "پاسخ غیرمنتظره: " + errText(o));
         } catch (ApiError e) {

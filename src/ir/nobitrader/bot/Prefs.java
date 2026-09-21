@@ -102,6 +102,33 @@ public class Prefs {
     public void setToken(String v) { sp.edit().putString("token", v).apply(); }
     public void setApiSecret(String v) { sp.edit().putString("apiSecret", v == null ? "" : v.trim()).apply(); }
 
+    /** connection check result: 0 = unknown, 1 = ok, 2 = failed */
+    public int connStatus() { return sp.getInt("connStatus", 0); }
+
+    public void setConn(int st, String email, long at) {
+        sp.edit().putInt("connStatus", st)
+                .putString("connEmail", email == null ? "" : email)
+                .putLong("connCheckedAt", at).apply();
+    }
+
+    public String connEmail() { return sp.getString("connEmail", ""); }
+
+    public long connCheckedAt() { return sp.getLong("connCheckedAt", 0); }
+
+    /** cached real wallet balances (-1 = unknown) */
+    public void setBalances(double rls, double usdt, double coin) {
+        sp.edit().putFloat("balRls", (float) rls)
+                .putFloat("balUsdt", (float) usdt)
+                .putFloat("balCoin", (float) coin)
+                .putLong("balAt", System.currentTimeMillis()).apply();
+    }
+
+    public double balRls() { return (double) sp.getFloat("balRls", -1f); }
+
+    public double balUsdt() { return (double) sp.getFloat("balUsdt", -1f); }
+
+    public double balCoin() { return (double) sp.getFloat("balCoin", -1f); }
+
     /** last successfully fetched price (cached so the UI can show it instantly on open) */
     public void setLastPrice(double v, String sym) {
         sp.edit().putFloat("lastPrice", (float) v).putString("lastPriceSym", sym == null ? "" : sym).apply();
