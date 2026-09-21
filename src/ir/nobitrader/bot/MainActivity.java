@@ -2284,7 +2284,7 @@ public class MainActivity extends Activity {
                 boolean netOk = false;
                 try {
                     android.net.ConnectivityManager cm =
-                            (android.net.ConnectivityManager) getSystemService(Context.CONNECTIVITY_SERVICE);
+                            (android.net.ConnectivityManager) getSystemService(android.content.Context.CONNECTIVITY_SERVICE);
                     android.net.NetworkInfo ni = cm.getActiveNetworkInfo();
                     netOk = ni != null && ni.isConnected();
                     android.net.Network nw = cm.getActiveNetwork();
