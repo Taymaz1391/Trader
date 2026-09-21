@@ -1,0 +1,15 @@
+== toolchain ==
+aapt2:   /usr/local/lib/android/sdk/build-tools/34.0.0/aapt2
+javac:   javac
+d8:      /usr/local/lib/android/sdk/build-tools/34.0.0/d8
+platform: /usr/local/lib/android/sdk/platforms/android-34/android.jar
+Android Asset Packaging Tool (aapt) 2.19-10229193
+== [1/6] compile resources (aapt2) ==
+== [2/6] link resources (aapt2) ==
+== [3/6] compile java (javac) ==
+src/ir/nobitrader/bot/MainActivity.java:2182: error: local variables referenced from an inner class must be final or effectively final
+                    NobitexApi api = new NobitexApi(key, sec);
+                                                    ^
+Note: src/ir/nobitrader/bot/BotService.java uses or overrides a deprecated API.
+Note: Recompile with -Xlint:deprecation for details.
+1 error
